@@ -1,4 +1,3 @@
-# app/storage/repo_store.py
 """Persistence for tracked repositories."""
 
 from pathlib import Path
@@ -9,8 +8,6 @@ from sqlalchemy import text
 from app.settings import Settings
 from app.storage.sa import get_engine
 
-from app.settings import Settings
-from pathlib import Path
 
 def _project_root() -> Path:
     """Walk upward from this file's directory to find the directory containing pyproject.toml."""
