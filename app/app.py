@@ -30,12 +30,14 @@ snapshots_app = typer.Typer()
 report_app = typer.Typer()
 dashboard_app = typer.Typer()
 deepdive_app = typer.Typer()
+db_app = typer.Typer()
 
 cli.add_typer(repos_app, name="repos")
 cli.add_typer(snapshots_app, name="snapshots")
 cli.add_typer(report_app, name="report")
 cli.add_typer(dashboard_app, name="dashboard")
 cli.add_typer(deepdive_app, name="deepdive")
+cli.add_typer(db_app, name="db")
 
 
 @repos_app.command("import")
@@ -156,6 +158,14 @@ def dashboard_run(
 ):
     from app.dashboard.server import run_server
     run_server(host=host, port=port)
+
+
+@db_app.command("check")
+def db_check():
+    """Connect to the configured database and print table counts."""
+    from app.storage.db_check import run_db_check
+    s = Settings()
+    run_db_check(s.db_url)
 
 
 def main():
