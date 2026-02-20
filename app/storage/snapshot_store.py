@@ -1,19 +1,26 @@
 """Persistence for repo snapshots."""
 
 import json
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+from sqlalchemy import text
+
+from app.settings import Settings
+from app.storage.sa import get_engine
 
 
 class SnapshotStore:
     """Read/write snapshot rows."""
 
-    def __init__(self, db_path: Path) -> None:
-        self._db = Path(db_path)
-
-    def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._db)
+    def __init__(self, db_path_or_url: "str | Path") -> None:
+        if isinstance(db_path_or_url, Path):
+            db_url = Settings().db_url
+        elif "://" in db_path_or_url:
+            db_url = db_path_or_url
+        else:
+            db_url = "sqlite:///" + Path(db_path_or_url).resolve().as_posix()
+        self._engine = get_engine(db_url)
 
     def upsert_snapshot(self, snapshot) -> None:
         """Insert or replace a snapshot row.
@@ -39,18 +46,24 @@ class SnapshotStore:
         else:
             captured_at = str(captured_at_raw)
 
-        con = self._connect()
-        try:
-            con.execute(
-                """
-                INSERT INTO snapshots (run_id, captured_at, owner, name, snapshot_json)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(run_id, owner, name) DO UPDATE SET
-                    captured_at   = excluded.captured_at,
-                    snapshot_json = excluded.snapshot_json
-                """,
-                (run_id, captured_at, owner, name, json.dumps(data, default=str)),
+        with self._engine.begin() as conn:
+            conn.execute(
+                text("""
+                    DELETE FROM snapshots
+                    WHERE run_id = :run_id AND owner = :owner AND name = :name
+                """),
+                {"run_id": run_id, "owner": owner, "name": name},
             )
-            con.commit()
-        finally:
-            con.close()
+            conn.execute(
+                text("""
+                    INSERT INTO snapshots (run_id, captured_at, owner, name, snapshot_json)
+                    VALUES (:run_id, :captured_at, :owner, :name, :snapshot_json)
+                """),
+                {
+                    "run_id": run_id,
+                    "captured_at": captured_at,
+                    "owner": owner,
+                    "name": name,
+                    "snapshot_json": json.dumps(data, default=str),
+                },
+            )
