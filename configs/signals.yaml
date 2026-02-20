@@ -3,7 +3,7 @@ version: 1
 collection:
   commits:
     enabled: true
-    max_commit_details: 10   # fetch /commits/{sha} for only top N
+    max_commit_details: 0   # fetch /commits/{sha} for only top N
   actions:
     enabled: true
   issues:

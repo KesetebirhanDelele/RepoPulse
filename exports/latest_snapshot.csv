@@ -1,8 +1,14 @@
 owner,name,captured_at,status_ryg,status_explanation,commits_24h,commits_7d,ci_status
-psf,requests,2026-02-20 16:47:58.101878+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
-psf,requests,2026-02-20 16:47:58.101878+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
-psf,requests,2026-02-20 16:47:58.101878+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
-psf,requests,2026-02-20 16:47:58.101878+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
-KesetebirhanDelele,RepoPulse,2026-02-20 16:47:58.101878+00:00,yellow,CI workflow missing.,4,4,none
-psf,requests,2026-02-20 16:47:58.101878+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
-KesetebirhanDelele,RepoPulse,2026-02-20 16:47:58.101878+00:00,yellow,CI workflow missing.,4,4,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+KesetebirhanDelele,RepoPulse,2026-02-20 17:47:34.678705+00:00,yellow,CI workflow missing.,6,6,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+KesetebirhanDelele,RepoPulse,2026-02-20 17:47:34.678705+00:00,yellow,CI workflow missing.,6,6,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+KesetebirhanDelele,RepoPulse,2026-02-20 17:47:34.678705+00:00,yellow,CI workflow missing.,6,6,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+KesetebirhanDelele,RepoPulse,2026-02-20 17:47:34.678705+00:00,yellow,CI workflow missing.,6,6,none
+psf,requests,2026-02-20 17:47:34.678705+00:00,yellow,No commits in 6 days (>= 2).,0,4,none
+KesetebirhanDelele,RepoPulse,2026-02-20 17:47:34.678705+00:00,yellow,CI workflow missing.,6,6,none
