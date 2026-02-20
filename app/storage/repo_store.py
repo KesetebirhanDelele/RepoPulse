@@ -78,15 +78,12 @@ class RepoStore:
 
         count = 0
         with self._engine.begin() as conn:
+            conn.execute(text("DELETE FROM repos"))
             for r in repos:
                 conn.execute(
                     text("""
                         INSERT INTO repos (url, owner, name, dev_owner_name, team)
                         VALUES (:url, :owner, :name, :dev_owner_name, :team)
-                        ON CONFLICT(id) DO UPDATE SET
-                            url            = excluded.url,
-                            dev_owner_name = excluded.dev_owner_name,
-                            team           = excluded.team
                     """),
                     {
                         "url": r.get("url", ""),
@@ -98,6 +95,7 @@ class RepoStore:
                 )
                 count += 1
         return count
+
 
     def list_repos(self) -> list[dict]:
         """Return all repos as a list of dicts with keys owner, name, url, dev_owner_name, team."""
