@@ -1,0 +1,17 @@
+version: 1
+
+collection:
+  commits:
+    enabled: true
+    max_commit_details: 10   # fetch /commits/{sha} for only top N
+  actions:
+    enabled: true
+  issues:
+    enabled: false           # if disabled -> "n/a"
+  releases:
+    enabled: true
+  readme:
+    enabled: true
+  tree_scan:
+    enabled: true
+    cache_hours: 24

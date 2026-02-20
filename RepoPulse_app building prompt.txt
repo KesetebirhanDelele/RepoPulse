@@ -1,0 +1,271 @@
+RepoPulse — Multi-Repo Progress Scoreboard (Public GitHub, Read-Only)
+
+You are a senior Python engineer + systems architect. Help me build RepoPulse, a local-first Python app that tracks daily/weekly progress across ~30 public GitHub repos (one per developer) where I only have read access. RepoPulse must generate a dashboard and CSV exports that summarize progress, flag risks (docs/CI gaps, churn risk), and help me decide which repos need deep-dive review (download locally).
+
+NEW REQUIREMENT (CRITICAL): Repo signals are first-class inputs
+
+RepoPulse must treat signals (commits, CI status, tags/releases, docs presence, README status block) as first-class inputs.
+
+Signal definitions and scoring rules MUST be external config files under configs/ (YAML/JSON).
+
+No hardcoding of scoring thresholds or required-file lists in code.
+
+CLI MUST support overriding config paths at runtime.
+
+CONTEXT / GOALS
+
+Each developer has their own public repo (not a shared repo).
+
+I need a daily progress snapshot and a weekly scoreboard to run an “architecture & delivery” weekly call.
+
+I will do deep dives by downloading repos locally (shallow clone or zip), but RepoPulse must work even without local clones.
+
+RepoPulse should help answer:
+
+Which repos moved since last check?
+
+Which repos look stuck (no pushes, CI failing, etc.)?
+
+Which repos show churn risk (activity without deliverable signals)?
+
+Which repos lack minimum architecture hygiene (missing docs pack, CI)?
+
+What’s the 1–2 line “what changed” summary per repo for the weekly call?
+
+NON-NEGOTIABLE REQUIREMENTS
+
+Read-only GitHub compatible
+
+Must work on public repos with read access only.
+
+Use GitHub API with token for reliability, but must gracefully degrade without token.
+
+Daily snapshots + weekly rollups
+
+RepoPulse runs daily (manual CLI run is fine for MVP).
+
+It stores snapshots and can produce weekly reports (“since last Wednesday”).
+
+Dashboard + CSV export
+
+Local dashboard: simple web UI (FastAPI + HTML or Streamlit).
+
+Export CSV for:
+
+latest daily snapshot
+
+weekly snapshot for meeting
+
+Signals collected per repo (API-only)
+
+Last commit timestamp (freshness)
+
+Commits in last 24h / 7d
+
+Top files changed (from commit details, limited sample)
+
+CI/Actions latest run status (success/failure/none)
+
+Open issues count (if enabled; otherwise “n/a”)
+
+Latest tag/release (if any)
+
+README updated in last 7d (detect by SHA or commit file changes)
+
+Required docs existence (by repo tree scan):
+
+docs/architecture.md
+
+docs/contracts.md
+
+docs/runbook.md
+
+.github/workflows/* (presence indicates CI exists)
+
+Churn risk detection (heuristic)
+
+RepoPulse must compute “churn risk” using configurable rules, e.g.:
+
+high commit count with no tags/releases,
+
+README Status block unchanged,
+
+high ratio of refactor/chore commits,
+
+repeated changes to same few files,
+
+contracts changing frequently without version marker.
+
+Must label this as a risk (not a definitive judgment).
+
+Green/Yellow/Red (RYG) scoring
+
+Configurable thresholds and conditions.
+
+Output must include: status_ryg + explanation fields (why it’s Yellow/Red).
+
+Traceability
+
+Every computed status and risk flag must store “evidence”: the inputs used (counts, timestamps, last CI conclusion, etc.).
+
+Save run metadata for each execution.
+
+Deep-dive support (local download workflow)
+
+RepoPulse should support generating a “deep dive queue” CSV listing Yellow/Red repos, including:
+
+clone URL
+
+suggested focus areas (docs missing, CI failing, contract churn)
+
+RepoPulse does not need to run the deep analysis itself in MVP, but must prepare the queue.
+
+Minimal working MVP runs locally
+
+Works on Windows/macOS/Linux.
+
+SQLite DB for snapshots.
+
+Simple config-driven rules.
+
+ASSUME
+
+GitHub only (no GitLab).
+
+Public repos.
+
+Local laptop execution.
+
+Python 3.11+.
+
+Common libs allowed: httpx/requests, pydantic, typer, sqlite, pandas, jinja2 (if needed), streamlit (if chosen).
+
+DELIVERABLES YOU MUST PRODUCE IN YOUR ANSWER
+
+A) Folder structure proposal including:
+
+configs/ (signal rules + scoring thresholds)
+
+schemas/ (snapshot/report schema)
+
+app/ modules
+
+data/ sqlite db path
+
+exports/ csv outputs
+
+B) CLI design with examples:
+
+repos add --url ... --owner ...
+
+snapshots run --config configs/default.yaml
+
+report weekly --since 2026-02-11 --out exports/weekly.csv
+
+dashboard run
+
+deepdive queue --out exports/deepdive_queue.csv
+
+C) Config formats
+
+A scoring config that defines:
+
+required files list
+
+RYG thresholds
+
+churn risk rules
+
+D) Data schemas (Pydantic or JSON Schema)
+
+RepoSnapshot schema
+
+WeeklyReportRow schema
+
+RunMetadata schema
+
+E) Python code skeleton
+
+app.py (Typer)
+
+github_client.py (API wrapper + rate limit handling)
+
+collector/ (signals: commits, actions, issues, releases, readme, tree scan)
+
+scoring/ (RYG + churn risk)
+
+storage/ (sqlite models + upsert snapshots)
+
+reporting/ (csv export)
+
+dashboard/ (minimal UI)
+
+logging + unit test stubs
+
+F) Acceptance criteria checks
+
+For each repo snapshot:
+
+required fields present (timestamps, counts)
+
+status_ryg computed with explanation
+
+risk_flags computed with evidence
+
+For each run:
+
+run metadata saved (timestamp, config hash, repos processed count, failures list)
+
+csv files written successfully
+
+OUTPUT RULES
+
+Do NOT ask clarifying questions.
+
+Give copy-pastable code blocks and file contents.
+
+If long, show representative files fully and summarize the rest.
+
+MVP should be runnable without any external services besides GitHub API.
+
+Clearly mark where to plug in optional enhancements (notifications, deeper local analysis).
+
+RUN METADATA
+
+Save run.json per execution including:
+
+run_id
+
+timestamp
+
+repos_processed
+
+failures (repo + error)
+
+config_used path + hash
+
+API mode: token/no-token
+
+scoring version
+
+output paths (csv, db)
+
+NOTES ON “DEVELOPER REPO HYGIENE” (what devs should include)
+
+RepoPulse should detect and report whether each repo has:
+
+Required (minimum)
+
+README “Status” section: milestone, next deliverable date, how to run, known blockers.
+
+Recommended
+
+docs/architecture.md
+
+docs/contracts.md (schemas/APIs/event contracts)
+
+docs/runbook.md
+
+.github/workflows/ci.yml (or equivalent) for CI
+
+RepoPulse must not fail if these are missing; it should mark as risk flags and factor into RYG scoring.

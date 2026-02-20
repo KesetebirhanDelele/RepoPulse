@@ -1,0 +1,69 @@
+version: 1
+scoring_version: "v1"
+
+required_files:
+  - "docs/architecture.md"
+  - "docs/contracts.md"
+  - "docs/runbook.md"
+required_globs:
+  - ".github/workflows/*"
+
+thresholds:
+  freshness_days:
+    green_max: 2
+    yellow_max: 7
+    red_min: 7
+
+  ci:
+    red_on_failure: true
+    yellow_if_missing: true
+
+  docs:
+    yellow_if_missing_any_required: true
+
+signals_for_green:
+  - type: "tag_or_release_within_days"
+    days: 7
+  - type: "readme_status_block_updated_within_days"
+    days: 7
+
+churn_risk_rules:
+  - id: "high_commits_no_release"
+    when:
+      commits_7d_gte: 15
+      has_release_or_tag_within_days: 14
+      negate: true
+    label: "churn_risk"
+    severity: "yellow"
+    message: "High commit volume without delivery marker (tag/release)."
+
+  - id: "refactor_heavy"
+    when:
+      refactor_or_chore_ratio_gte: 0.7
+      commits_7d_gte: 10
+    label: "churn_risk"
+    severity: "yellow"
+    message: "Commit mix suggests refactor/chore-heavy activity."
+
+  - id: "contracts_churn_no_version"
+    when:
+      contracts_changes_7d_gte: 3
+      contracts_has_version_marker: false
+    label: "contract_churn"
+    severity: "red"
+    message: "Contracts changing frequently without version marker."
+
+ryg_rules:
+  red:
+    any:
+      - no_commits_in_days_gte: 7
+      - ci_latest_conclusion_in: ["failure", "cancelled", "timed_out"]
+  yellow:
+    any:
+      - no_commits_in_days_gte: 2
+      - missing_required_files_any: true
+      - ci_missing: true
+  green:
+    all:
+      - no_commits_in_days_lte: 2
+      - ci_ok_or_missing_allowed: true
