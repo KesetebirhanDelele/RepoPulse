@@ -1,0 +1,11 @@
+- url: "https://github.com/psf/requests"
+  owner: "psf"
+  name: "requests"
+  dev_owner_name: "Sample"
+  team: "Demo"
+
+- url: "https://github.com/KesetebirhanDelele/RepoPulse"
+  owner: "KesetebirhanDelele"
+  name: "RepoPulse"
+  dev_owner_name: "KesetebirhanDelele"
+  team: "Core"
