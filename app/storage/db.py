@@ -1,55 +1,17 @@
 """Database initialisation: create tables if they don't exist."""
 
-import sqlite3
 from pathlib import Path
+
+from app.settings import Settings
+from app.storage import sa
 
 
 def init_db(db_path: Path) -> None:
-    """Ensure the parent directory exists and create all required tables."""
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    """Initialise the database using SQLAlchemy.
 
-    con = sqlite3.connect(db_path)
-    try:
-        cur = con.cursor()
-        cur.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS repos (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                url             TEXT,
-                owner           TEXT,
-                name            TEXT,
-                dev_owner_name  TEXT,
-                team            TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS runs (
-                run_id              TEXT PRIMARY KEY,
-                started_at          TEXT,
-                finished_at         TEXT,
-                failures_json       TEXT,
-                outputs_json        TEXT,
-                api_mode            TEXT,
-                config_used_path    TEXT,
-                config_hash         TEXT,
-                signals_used_path   TEXT,
-                signals_hash        TEXT,
-                repos_used_path     TEXT,
-                repos_hash          TEXT,
-                scoring_version     TEXT,
-                db_path             TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS snapshots (
-                run_id          TEXT,
-                captured_at     TEXT,
-                owner           TEXT,
-                name            TEXT,
-                snapshot_json   TEXT,
-                PRIMARY KEY (run_id, owner, name)
-            );
-            """
-        )
-        con.commit()
-    finally:
-        con.close()
+    db_path is accepted for API compatibility but the engine URL is sourced
+    from Settings (env var DB_URL or the default sqlite URL). Settings also
+    ensures the data/ directory exists for the default sqlite case.
+    """
+    engine = sa.get_engine(Settings().db_url)
+    sa.init_db(engine)
