@@ -16,7 +16,7 @@ thresholds:
 
   ci:
     red_on_failure: true
-    yellow_if_missing: true
+    yellow_if_missing: false
 
   docs:
     yellow_if_missing_any_required: true
@@ -62,7 +62,6 @@ ryg_rules:
     any:
       - no_commits_in_days_gte: 2
       - missing_required_files_any: true
-      - ci_missing: true
   green:
     all:
       - no_commits_in_days_lte: 2
