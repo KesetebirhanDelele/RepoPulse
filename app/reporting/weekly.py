@@ -57,12 +57,27 @@ _SINCE_SQL = text("""
 """)
 
 
+_DOCS_DEFAULT = "docs/architecture.md;docs/data-model.md;docs/operations.md"
+
+
 def _risk_ids(risk_flags: list[Any]) -> str:
     parts: list[str] = []
     for rf in risk_flags:
         if isinstance(rf, dict):
             parts.append(rf.get("id") or rf.get("label") or "?")
     return ";".join(parts)
+
+
+def _format_hygiene(snap: dict[str, Any]) -> dict[str, str]:
+    """Return CSV-formatted hygiene fields extracted from a snapshot dict."""
+    docs = snap.get("docs_missing")
+    return {
+        "readme_present": "true" if snap.get("readme_present") is True else "false",
+        "tests_present": "true" if snap.get("tests_present") is True else "false",
+        "docs_missing": ";".join(docs) if isinstance(docs, list) else _DOCS_DEFAULT,
+        "gitignore_present": "true" if snap.get("gitignore_present") is True else "false",
+        "env_not_tracked": "true" if snap.get("env_not_tracked", True) is not False else "false",
+    }
 
 
 def export_weekly_csv(db_path: Path, since_date: str, out_path: Path) -> None:
@@ -112,11 +127,7 @@ def export_weekly_csv(db_path: Path, since_date: str, out_path: Path) -> None:
                     "status_ryg": snap.get("status_ryg") or "",
                     "status_explanation": snap.get("status_explanation") or "",
                     "risk_flags": _risk_ids(risk_flags),
-                    "readme_present": "true" if snap.get("readme_present") is True else "false",
-                    "tests_present": "true" if snap.get("tests_present") is True else "false",
-                    "docs_missing": ";".join(snap["docs_missing"]) if isinstance(snap.get("docs_missing"), list) else "docs/architecture.md;docs/data-model.md;docs/operations.md",
-                    "gitignore_present": "true" if snap.get("gitignore_present") is True else "false",
-                    "env_not_tracked": "true" if snap.get("env_not_tracked", True) is not False else "false",
+                    **_format_hygiene(snap),
                 }
             )
 

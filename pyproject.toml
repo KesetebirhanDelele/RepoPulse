@@ -17,6 +17,13 @@ dependencies = [
 [project.scripts]
 repopulse = "app.app:main"
 
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["app*"]
