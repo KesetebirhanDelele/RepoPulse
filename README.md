@@ -39,6 +39,14 @@ repopulse report weekly --since 2026-02-17 --out exports/weekly.csv
 repopulse deepdive queue --out exports/deepdive_queue.csv
 ```
 
+### Running Tests
+
+Use the same interpreter as the app to avoid version mismatches (e.g. 3.11 vs 3.12) when multiple Pythons are installed:
+
+```bash
+python -m pytest
+```
+
 ### Adding Repos
 Edit `configs/repos.yaml`:
 
