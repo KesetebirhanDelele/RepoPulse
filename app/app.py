@@ -31,6 +31,7 @@ report_app = typer.Typer()
 dashboard_app = typer.Typer()
 deepdive_app = typer.Typer()
 db_app = typer.Typer()
+validate_app = typer.Typer()
 
 cli.add_typer(repos_app, name="repos")
 cli.add_typer(snapshots_app, name="snapshots")
@@ -38,6 +39,7 @@ cli.add_typer(report_app, name="report")
 cli.add_typer(dashboard_app, name="dashboard")
 cli.add_typer(deepdive_app, name="deepdive")
 cli.add_typer(db_app, name="db")
+cli.add_typer(validate_app, name="validate")
 
 
 @repos_app.command("import")
@@ -201,6 +203,25 @@ def db_check():
     from app.storage.db_check import run_db_check
     s = Settings()
     run_db_check(s.db_url)
+
+
+@validate_app.command("configs")
+def validate_configs(
+    repos: Path = typer.Option(Path("configs/repos.yaml"), "--repos"),
+    signals: Path = typer.Option(Path("configs/signals.yaml"), "--signals"),
+    config: Path = typer.Option(Path("configs/default.yaml"), "--config"),
+):
+    """Validate repos.yaml, signals.yaml, and default.yaml."""
+    from app.validate_configs import validate_all
+
+    results = validate_all(repos_path=repos, signals_path=signals, default_path=config)
+    has_error = False
+    for r in results:
+        typer.echo(str(r))
+        if r.level == "ERROR":
+            has_error = True
+    if has_error:
+        raise typer.Exit(code=1)
 
 
 def main():
