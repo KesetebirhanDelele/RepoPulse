@@ -12,6 +12,8 @@ dependencies = [
     "httpx",
     "pyyaml",
     "sqlalchemy",
+    "fastapi",
+    "uvicorn",
 ]
 
 [project.scripts]
