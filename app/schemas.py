@@ -63,6 +63,13 @@ class RepoSnapshot(BaseModel):
     required_files_missing: list[str] = Field(default_factory=list)
     required_globs_missing: list[str] = Field(default_factory=list)
 
+    # Hygiene signals (from TreeScanCollector)
+    readme_present: Optional[bool] = None
+    tests_present: Optional[bool] = None
+    docs_missing: list[str] = Field(default_factory=list)
+    gitignore_present: Optional[bool] = None
+    env_not_tracked: Optional[bool] = None
+
     # Derived
     status_ryg: RYG
     status_explanation: str
