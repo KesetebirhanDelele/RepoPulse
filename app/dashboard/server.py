@@ -399,6 +399,232 @@ def _render_risks_html(
 
 
 # ---------------------------------------------------------------------------
+# Ownership & Support helpers
+# ---------------------------------------------------------------------------
+
+def _compute_support_flags(snap: dict[str, Any], stale_days: int) -> list[str]:
+    """Return active support flag names for a snapshot."""
+    flags: list[str] = []
+
+    docs_missing = snap.get("docs_missing")
+    if isinstance(docs_missing, list) and len(docs_missing) > 0:
+        flags.append("missing_docs")
+
+    if snap.get("tests_present") is False:
+        flags.append("no_tests")
+
+    if snap.get("ci_status") == "failure":
+        flags.append("ci_failing")
+
+    last_commit = snap.get("last_commit_at") or ""
+    days = _days_since(last_commit)
+    if days is not None:
+        if days >= stale_days:
+            flags.append("stale")
+    else:
+        if snap.get("commits_7d") == 0:
+            flags.append("stale")
+
+    if snap.get("env_not_tracked") is False:
+        flags.append("env_tracked")
+
+    if snap.get("gitignore_present") is False:
+        flags.append("missing_gitignore")
+
+    return flags
+
+
+def _load_support_rows(team_filter: str, stale_days: int) -> list[dict[str, Any]]:
+    engine = get_engine(Settings().db_url)
+    rows: list[dict[str, Any]] = []
+
+    with engine.connect() as conn:
+        result = conn.execute(_LATEST_SQL)
+        for db_row in result:
+            try:
+                snap: dict[str, Any] = json.loads(db_row.snapshot_json)
+            except Exception:
+                continue
+
+            repo = snap.get("repo") or {}
+            team = repo.get("team") or ""
+
+            if team_filter and team != team_filter:
+                continue
+
+            flags = _compute_support_flags(snap, stale_days)
+            last_commit = snap.get("last_commit_at") or ""
+            docs_missing = snap.get("docs_missing") or []
+
+            rows.append({
+                "owner":              db_row.owner,
+                "name":               db_row.name,
+                "team":               team or "Unassigned",
+                "dev_owner":          repo.get("dev_owner_name") or "Unassigned",
+                "status_ryg":         snap.get("status_ryg") or "",
+                "days_since":         _days_since(last_commit),
+                "ci_status":          snap.get("ci_status") or "",
+                "docs_missing_count": len(docs_missing) if isinstance(docs_missing, list) else 0,
+                "tests_present":      snap.get("tests_present"),
+                "support_flags":      flags,
+                "support_flags_str":  ";".join(flags),
+                "captured_at":        str(db_row.captured_at),
+            })
+
+    return rows
+
+
+def _render_support_html(
+    rows: list[dict[str, Any]],
+    team_filter: str,
+    stale_days: int,
+) -> str:
+    filter_html = (
+        '<form method="get" class="filters">'
+        f'  <label>Team: <input name="team" value="{_esc(team_filter)}" size="16"></label>'
+        f'  <label>Stale days: <input name="stale_days" type="number" value="{stale_days}" size="4" min="1"></label>'
+        '  <button type="submit">Filter</button>'
+        '</form>'
+    )
+
+    # ---- Rollup by (team, dev_owner) ----
+    GroupKey = tuple[str, str]
+    groups: dict[GroupKey, dict[str, Any]] = {}
+
+    for r in rows:
+        key: GroupKey = (r["team"], r["dev_owner"])
+        if key not in groups:
+            groups[key] = {
+                "team": r["team"], "dev_owner": r["dev_owner"],
+                "apps_total": 0, "reds_count": 0, "yellows_count": 0,
+                "missing_docs_count": 0, "no_tests_count": 0,
+                "ci_failing_count": 0, "stale_count": 0,
+                "env_tracked_count": 0, "missing_gitignore_count": 0,
+            }
+        g = groups[key]
+        g["apps_total"] += 1
+        if r["status_ryg"] == "red":
+            g["reds_count"] += 1
+        if r["status_ryg"] == "yellow":
+            g["yellows_count"] += 1
+        sf = r["support_flags"]
+        if "missing_docs"     in sf: g["missing_docs_count"] += 1
+        if "no_tests"         in sf: g["no_tests_count"] += 1
+        if "ci_failing"       in sf: g["ci_failing_count"] += 1
+        if "stale"            in sf: g["stale_count"] += 1
+        if "env_tracked"      in sf: g["env_tracked_count"] += 1
+        if "missing_gitignore" in sf: g["missing_gitignore_count"] += 1
+
+    sorted_groups = sorted(groups.values(), key=lambda g: (g["team"], g["dev_owner"]))
+
+    rollup_header = (
+        "<tr>"
+        "<th>Team</th><th>Dev Owner</th><th>Apps</th>"
+        "<th>Red</th><th>Yellow</th>"
+        "<th>Missing Docs</th><th>No Tests</th><th>CI Failing</th>"
+        "<th>Stale</th><th>Env Tracked</th><th>Missing .gitignore</th>"
+        "</tr>"
+    )
+    rollup_rows: list[str] = []
+    for g in sorted_groups:
+        rollup_rows.append(
+            "<tr>"
+            f"<td>{_esc(g['team'])}</td>"
+            f"<td>{_esc(g['dev_owner'])}</td>"
+            f"<td>{g['apps_total']}</td>"
+            f"<td>{g['reds_count'] or ''}</td>"
+            f"<td>{g['yellows_count'] or ''}</td>"
+            f"<td>{g['missing_docs_count'] or ''}</td>"
+            f"<td>{g['no_tests_count'] or ''}</td>"
+            f"<td>{g['ci_failing_count'] or ''}</td>"
+            f"<td>{g['stale_count'] or ''}</td>"
+            f"<td>{g['env_tracked_count'] or ''}</td>"
+            f"<td>{g['missing_gitignore_count'] or ''}</td>"
+            "</tr>"
+        )
+
+    rollup_table = (
+        f"<table><thead>{rollup_header}</thead><tbody>{''.join(rollup_rows)}</tbody></table>"
+        if sorted_groups else "<p>No data.</p>"
+    )
+
+    # ---- Apps needing attention ----
+    attention = [
+        r for r in rows
+        if r["status_ryg"] in ("red", "yellow") or r["support_flags"]
+    ]
+    attention.sort(key=lambda r: (
+        _RYG_ORDER.get(r["status_ryg"], 9), r["team"], r["dev_owner"], r["owner"], r["name"]
+    ))
+
+    attn_header = (
+        "<tr>"
+        "<th>Repo</th><th>Team</th><th>Dev Owner</th><th>Status</th>"
+        "<th>Days Since Commit</th><th>CI</th><th>Docs Missing</th>"
+        "<th>Tests</th><th>Support Flags</th><th>Captured At</th>"
+        "</tr>"
+    )
+    attn_rows: list[str] = []
+    for r in attention:
+        owner_esc = _esc(r["owner"])
+        name_esc  = _esc(r["name"])
+        repo_link = f'<a href="/repo/{owner_esc}/{name_esc}">{owner_esc}/{name_esc}</a>'
+
+        days = r["days_since"]
+        days_cell = _esc(days) if days is not None else _NONE
+        ci = _esc(r["ci_status"]) if r["ci_status"] else _NONE
+
+        tp = r["tests_present"]
+        if tp is True:
+            tests_cell = "YES"
+        elif tp is False:
+            tests_cell = "NO"
+        else:
+            tests_cell = _NONE
+
+        sf = _esc(r["support_flags_str"]) if r["support_flags_str"] else _NONE
+
+        attn_rows.append(
+            "<tr>"
+            f"<td>{repo_link}</td>"
+            f"<td>{_esc(r['team'])}</td>"
+            f"<td>{_esc(r['dev_owner'])}</td>"
+            f"<td>{_badge(r['status_ryg'])}</td>"
+            f"<td>{days_cell}</td>"
+            f"<td>{ci}</td>"
+            f"<td>{_esc(r['docs_missing_count'])}</td>"
+            f"<td>{tests_cell}</td>"
+            f"<td>{sf}</td>"
+            f"<td>{_esc(r['captured_at'])}</td>"
+            "</tr>"
+        )
+
+    attn_table = (
+        f"<table><thead>{attn_header}</thead><tbody>{''.join(attn_rows)}</tbody></table>"
+        if attn_rows else "<p>No repos need attention under the current filters.</p>"
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RepoPulse &mdash; Ownership &amp; Support</title>
+  <style>{_CSS}</style>
+</head>
+<body>
+  <h1>Ownership &amp; Support</h1>
+  <p><a href="/">&larr; Portfolio Overview</a></p>
+  {filter_html}
+  <h2 style="font-size:1.1em;margin-top:16px">Team / Dev Owner Rollup</h2>
+  {rollup_table}
+  <h2 style="font-size:1.1em;margin-top:24px">Apps Needing Attention</h2>
+  {attn_table}
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 
@@ -429,6 +655,19 @@ async def risks(
     team = (team or "").strip()
     rows, categories = _load_risk_rows(team_filter=team)
     html = _render_risks_html(rows, categories, team_filter=team)
+    return HTMLResponse(content=html)
+
+
+@app.get("/support", response_class=HTMLResponse)
+async def support(
+    request: Request,
+    team: Optional[str] = "",
+    stale_days: Optional[int] = 7,
+) -> HTMLResponse:
+    team = (team or "").strip()
+    stale_days = max(1, stale_days or 7)
+    rows = _load_support_rows(team_filter=team, stale_days=stale_days)
+    html = _render_support_html(rows, team_filter=team, stale_days=stale_days)
     return HTMLResponse(content=html)
 
 
