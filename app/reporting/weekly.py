@@ -32,6 +32,11 @@ _FIELDS = [
     "status_ryg",
     "status_explanation",
     "risk_flags",
+    "readme_present",
+    "tests_present",
+    "docs_missing",
+    "gitignore_present",
+    "env_example_present",
 ]
 
 _RYG_ORDER = {"red": 0, "yellow": 1, "green": 2}
@@ -107,6 +112,11 @@ def export_weekly_csv(db_path: Path, since_date: str, out_path: Path) -> None:
                     "status_ryg": snap.get("status_ryg") or "",
                     "status_explanation": snap.get("status_explanation") or "",
                     "risk_flags": _risk_ids(risk_flags),
+                    "readme_present": "true" if snap.get("readme_present") is True else "false",
+                    "tests_present": "true" if snap.get("tests_present") is True else "false",
+                    "docs_missing": ";".join(snap["docs_missing"]) if isinstance(snap.get("docs_missing"), list) else "",
+                    "gitignore_present": "true" if snap.get("gitignore_present") is True else "false",
+                    "env_example_present": "true" if snap.get("env_example_present") is True else "false",
                 }
             )
 
