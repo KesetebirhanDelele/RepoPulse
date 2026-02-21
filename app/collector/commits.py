@@ -39,6 +39,16 @@ class CommitsCollector:
             # GitHub returns newest-first
             dt = commits_7d[0]["commit"]["committer"]["date"]
             last_commit_at = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+        else:
+            # No commits in the last 7 days — fetch the single most recent commit
+            # so scoring can compute how stale the repo actually is.
+            recent = self.gh.get_json(
+                f"/repos/{owner}/{name}/commits",
+                params={"sha": default_branch, "per_page": 1},
+            )
+            if recent:
+                dt = recent[0]["commit"]["committer"]["date"]
+                last_commit_at = datetime.fromisoformat(dt.replace("Z", "+00:00"))
 
         # Top files changed: fetch commit detail for top N recent in 24h window
         max_details = int(cfg["collection"]["commits"]["max_commit_details"])
