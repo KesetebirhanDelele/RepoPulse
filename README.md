@@ -39,6 +39,24 @@ repopulse report weekly --since 2026-02-17 --out exports/weekly.csv
 repopulse deepdive queue --out exports/deepdive_queue.csv
 ```
 
+### Weekly Runner Script (PowerShell)
+
+```powershell
+# Snapshots only (DB check + collect)
+.\scripts\run_weekly.ps1
+
+# Snapshots + CSV reports
+.\scripts\run_weekly.ps1 -Reports
+
+# Start dashboard after snapshots (blocks until Ctrl+C)
+.\scripts\run_weekly.ps1 -Dashboard
+
+# Full run: custom week start, reports, dashboard on custom address
+.\scripts\run_weekly.ps1 -Since 2026-02-13 -Reports -Dashboard -BindHost 127.0.0.1 -BindPort 8000
+```
+
+Dashboard mode starts the web server and blocks until Ctrl+C.
+
 ### Running Tests
 
 Use the same interpreter as the app to avoid version mismatches (e.g. 3.11 vs 3.12) when multiple Pythons are installed:

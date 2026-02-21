@@ -73,21 +73,36 @@ human-readable reason string.
 <!-- MANAGED:WEEKLY_SCRIPT -->
 ## Automated Weekly Pipeline (`scripts/run_weekly.ps1`)
 
-The PowerShell script runs all four steps in sequence:
+Always runs: `repopulse db check` → `repopulse snapshots run`.
+Optional flags control CSV generation and the dashboard server.
+
+### Switch reference
+
+| Switch | Default | Effect |
+|---|---|---|
+| `-Since <date>` | last Monday UTC | Override the week-start date for report queries |
+| `-Reports` | off | Generate `exports/weekly.csv` and `exports/deepdive_queue.csv` |
+| `-Dashboard` | off | Start the web dashboard after snapshots (blocks until Ctrl+C) |
+| `-BindHost <host>` | `127.0.0.1` | Dashboard listen address (used only with `-Dashboard`) |
+| `-BindPort <port>` | `8000` | Dashboard listen port (used only with `-Dashboard`) |
+
+### Usage patterns
 
 ```powershell
-# Auto-compute last Monday UTC
+# Daily: snapshots only
 .\scripts\run_weekly.ps1
 
-# Override the week start date
-.\scripts\run_weekly.ps1 -Since 2026-02-10
+# Weekly (Monday): snapshots + CSV reports
+.\scripts\run_weekly.ps1 -Reports
+
+# Ad-hoc dashboard review after snapshots
+.\scripts\run_weekly.ps1 -Dashboard
+
+# Full weekly pipeline with custom week start and dashboard
+.\scripts\run_weekly.ps1 -Since 2026-02-13 -Reports -Dashboard -BindHost 127.0.0.1 -BindPort 8000
 ```
 
-Steps executed:
-1. `repopulse db check` — verify connection
-2. `repopulse snapshots run` — collect and score all repos
-3. `repopulse report weekly --since $Since --out exports/weekly.csv`
-4. `repopulse deepdive queue --out exports/deepdive_queue.csv`
+`-Reports` controls whether CSVs are written. `exports/` is git-ignored — do not commit CSV files.
 
 The script uses `$ErrorActionPreference = "Stop"`, so any failure aborts the
 pipeline immediately. The `exports/` directory is created if missing.
