@@ -138,6 +138,8 @@ def _load_rows(status_filter: str, team_filter: str) -> list[dict[str, Any]]:
                 "docs_missing_count": len(docs_missing) if isinstance(docs_missing, list) else 0,
                 "tests_present":    snap.get("tests_present"),
                 "risk_flags_raw":   snap.get("risk_flags"),
+                "latest_tag":       snap.get("latest_tag") or "",
+                "latest_release":   snap.get("latest_release") or "",
                 "captured_at":      str(db_row.captured_at),
             })
 
@@ -234,6 +236,8 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
         "<th>Status</th>"
         "<th>Explanation</th>"
         "<th>Risk Flags</th>"
+        "<th>Latest Tag</th>"
+        "<th>Latest Release</th>"
         "</tr>"
     )
 
@@ -261,6 +265,8 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
             f"<td>{_badge(r['status_ryg'])}</td>"
             f"<td>{exp}</td>"
             f"<td>{rf_cell}</td>"
+            f"<td>{_esc(r['latest_tag']) if r['latest_tag'] else _NONE}</td>"
+            f"<td>{_esc(r['latest_release']) if r['latest_release'] else _NONE}</td>"
             f"</tr>"
         )
 
