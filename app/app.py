@@ -125,7 +125,42 @@ def snapshots_run(
     export_latest_snapshot_csv(snapshots, out_csv)
     run_store.finish_run(run_id, failures=failures, outputs={"latest_csv": str(out_csv)})
 
-    typer.echo(f"Run {run_id} done. Snapshots: {len(snapshots)}. Failures: {len(failures)}.")
+    # ── End-of-run summary ──────────────────────────────────────────────────
+    total = len(repos)
+    n_ok = len(snapshots)
+    n_fail = len(failures)
+
+    typer.echo(f"\nRun {run_id} complete.")
+    typer.echo(f"  Repos processed : {total}")
+    typer.echo(f"  Snapshots written: {n_ok}")
+    typer.echo(f"  Failures         : {n_fail}")
+
+    if n_fail > 0:
+        # Categorise by failure["type"] → exc class name → "unknown"
+        from collections import Counter
+
+        def _category(f: dict) -> str:
+            if f.get("type"):
+                return f["type"]
+            err = f.get("error") or ""
+            # "ExcClassName: message" — extract class name if present
+            if ":" in err:
+                return err.split(":")[0].strip() or "unknown"
+            return "unknown"
+
+        cats = Counter(_category(f) for f in failures)
+        typer.echo("\n  Failure categories:")
+        for cat, count in cats.most_common():
+            typer.echo(f"    {cat}: {count}")
+
+        typer.echo(f"\n  Failed repos (up to 10):")
+        for f in failures[:10]:
+            repo_id = f.get("repo") or "unknown"
+            msg = (f.get("error") or "no message")
+            # Truncate long messages for readability
+            if len(msg) > 120:
+                msg = msg[:117] + "..."
+            typer.echo(f"    {repo_id}: {msg}")
 
 
 @report_app.command("weekly")
