@@ -119,12 +119,14 @@ class TreeScanCollector:
             ]
             gitignore_present = self._exists(owner, name, ".gitignore")
             env_not_tracked = self._env_not_tracked(owner, name)
+            claude_md_present = self._exists(owner, name, "CLAUDE.md")
         except Exception:
             readme_present = False
             tests_present = False
             docs_missing = list(_REQUIRED_DOCS)
             gitignore_present = False
             env_not_tracked = True
+            claude_md_present = False
 
         signals.update(
             {
@@ -135,6 +137,7 @@ class TreeScanCollector:
                 "docs_missing": docs_missing,
                 "gitignore_present": gitignore_present,
                 "env_not_tracked": env_not_tracked,
+                "claude_md_present": claude_md_present,
             }
         )
         return signals

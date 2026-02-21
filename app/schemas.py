@@ -69,6 +69,7 @@ class RepoSnapshot(BaseModel):
     docs_missing: list[str] = Field(default_factory=list)
     gitignore_present: Optional[bool] = None
     env_not_tracked: Optional[bool] = None
+    claude_md_present: Optional[bool] = None
 
     # Derived
     status_ryg: RYG

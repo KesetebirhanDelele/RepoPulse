@@ -32,6 +32,20 @@ _LATEST_SQL = text("""
     ORDER BY s.owner, s.name
 """)
 
+_LATEST_ONE_SQL = text("""
+    SELECT s.owner, s.name, s.captured_at, s.snapshot_json
+    FROM snapshots s
+    INNER JOIN (
+        SELECT owner, name, MAX(captured_at) AS max_cap
+        FROM snapshots
+        WHERE owner = :owner AND name = :name
+        GROUP BY owner, name
+    ) latest
+        ON  s.owner       = latest.owner
+        AND s.name        = latest.name
+        AND s.captured_at = latest.max_cap
+""")
+
 # ---------------------------------------------------------------------------
 # RYG badge colours
 # ---------------------------------------------------------------------------
@@ -70,6 +84,16 @@ def _days_since(last_commit_str: str) -> int | None:
         return max(0, (datetime.now(timezone.utc) - dt).days)
     except Exception:
         return None
+
+
+def _format_risk_flags(raw: Any) -> str:
+    """Return a human-readable semicolon-joined string of risk flag ids."""
+    if isinstance(raw, list):
+        parts = [rf.get("id") or rf.get("label") or "" for rf in raw if isinstance(rf, dict)]
+        return ";".join(p for p in parts if p)
+    if isinstance(raw, str):
+        return raw
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +137,7 @@ def _load_rows(status_filter: str, team_filter: str) -> list[dict[str, Any]]:
                 "ci_status":        snap.get("ci_status") or "",
                 "docs_missing_count": len(docs_missing) if isinstance(docs_missing, list) else 0,
                 "tests_present":    snap.get("tests_present"),
+                "risk_flags_raw":   snap.get("risk_flags"),
                 "captured_at":      str(db_row.captured_at),
             })
 
@@ -194,18 +219,21 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
         '</div>'
     )
 
+    # Captured At: max across shown rows
+    max_cap = max((r["captured_at"] for r in rows), default="") if rows else ""
+    cap_line = (
+        f'<p style="font-size:0.85em;color:#555;margin:0 0 10px">Captured At: {_esc(max_cap)}</p>'
+        if max_cap else ""
+    )
+
     header = (
         "<tr>"
-        "<th>Repo</th>"
-        "<th>Team</th>"
+        "<th>Project</th>"
+        "<th>Developer</th>"
+        "<th>Commits 7d</th>"
         "<th>Status</th>"
         "<th>Explanation</th>"
-        "<th>Commits 7d</th>"
-        "<th>Days Since Commit</th>"
-        "<th>CI</th>"
-        "<th>Docs Missing</th>"
-        "<th>Tests</th>"
-        "<th>Captured At</th>"
+        "<th>Risk Flags</th>"
         "</tr>"
     )
 
@@ -213,41 +241,26 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
     for r in rows:
         owner_esc = _esc(r["owner"])
         name_esc  = _esc(r["name"])
-        repo_link = f'<a href="/repo/{owner_esc}/{name_esc}">{owner_esc}/{name_esc}</a>'
+        repo_link = (
+            f'<a href="/audit?owner={owner_esc}&amp;name={name_esc}">'
+            f'{owner_esc}/{name_esc}</a>'
+        )
 
-        exp = f'<span class="exp">{_esc(r["status_exp"])}</span>' if r["status_exp"] else _NONE
-        commits = _esc(r["commits_7d"]) if r["commits_7d"] != "" else _NONE
+        dev_cell = _esc(r["dev_owner"]) if r["dev_owner"] else _NONE
+        commits  = _esc(r["commits_7d"]) if r["commits_7d"] != "" else _NONE
+        exp      = f'<span class="exp">{_esc(r["status_exp"])}</span>' if r["status_exp"] else _NONE
 
-        days = r["days_since"]
-        days_cell = _esc(days) if days is not None else _NONE
-
-        ci = _esc(r["ci_status"]) if r["ci_status"] else _NONE
-
-        docs_count = r["docs_missing_count"]
-        docs_cell = _esc(docs_count) if docs_count > 0 else "0"
-
-        tp = r["tests_present"]
-        if tp is True:
-            tests_cell = "YES"
-        elif tp is False:
-            tests_cell = "NO"
-        else:
-            tests_cell = _NONE
-
-        team_cell = _esc(r["team"]) if r["team"] else _NONE
+        rf_str  = _format_risk_flags(r["risk_flags_raw"])
+        rf_cell = _esc(rf_str) if rf_str else _NONE
 
         body_rows.append(
             f"<tr>"
             f"<td>{repo_link}</td>"
-            f"<td>{team_cell}</td>"
+            f"<td>{dev_cell}</td>"
+            f"<td>{commits}</td>"
             f"<td>{_badge(r['status_ryg'])}</td>"
             f"<td>{exp}</td>"
-            f"<td>{commits}</td>"
-            f"<td>{days_cell}</td>"
-            f"<td>{ci}</td>"
-            f"<td>{docs_cell}</td>"
-            f"<td>{tests_cell}</td>"
-            f"<td>{_esc(r['captured_at'])}</td>"
+            f"<td>{rf_cell}</td>"
             f"</tr>"
         )
 
@@ -267,6 +280,7 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
 <body>
   <h1>RepoPulse Dashboard</h1>
   {counters_html}
+  {cap_line}
   {filter_html}
   {table}
 </body>
@@ -394,6 +408,100 @@ def _render_risks_html(
   <p><a href="/">&larr; Portfolio Overview</a></p>
   {filter_html}
   {body}
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Developer audit helpers
+# ---------------------------------------------------------------------------
+
+_AUDIT_DOCS_DEFAULTS = [
+    "docs/architecture.md",
+    "docs/data-model.md",
+    "docs/operations.md",
+]
+
+
+def _load_audit_row(owner: str, name: str) -> dict[str, Any] | None:
+    engine = get_engine(Settings().db_url)
+    with engine.connect() as conn:
+        result = conn.execute(_LATEST_ONE_SQL, {"owner": owner, "name": name})
+        db_row = result.fetchone()
+        if db_row is None:
+            return None
+        try:
+            snap: dict[str, Any] = json.loads(db_row.snapshot_json)
+        except Exception:
+            return None
+
+    repo = snap.get("repo") or {}
+    docs_missing = snap.get("docs_missing")
+    if not isinstance(docs_missing, list):
+        docs_missing = _AUDIT_DOCS_DEFAULTS
+
+    return {
+        "owner":             db_row.owner,
+        "name":              db_row.name,
+        "dev_owner":         repo.get("dev_owner_name") or "",
+        "captured_at":       str(db_row.captured_at),
+        "readme_present":    snap.get("readme_present", False),
+        "tests_present":     snap.get("tests_present", False),
+        "docs_missing":      docs_missing,
+        "gitignore_present":  snap.get("gitignore_present", False),
+        "env_not_tracked":    snap.get("env_not_tracked", True),
+        "claude_md_present":  snap.get("claude_md_present", False),
+    }
+
+
+def _render_audit_html(row: dict[str, Any]) -> str:
+    owner_esc = _esc(row["owner"])
+    name_esc  = _esc(row["name"])
+    dev_esc   = _esc(row["dev_owner"]) if row["dev_owner"] else "—"
+    cap_esc   = _esc(row["captured_at"])
+
+    def _bool_cell(val: Any) -> str:
+        return "✅" if val else "❌"
+
+    docs_missing: list[str] = row["docs_missing"]
+    if not docs_missing:
+        docs_cell = "✅"
+    else:
+        joined = _esc(";".join(docs_missing))
+        docs_cell = f'❌ <span style="font-size:0.8em;color:#555">{joined}</span>'
+
+    audit_header = (
+        "<tr>"
+        "<th>README</th><th>Tests</th><th>Docs Missing</th>"
+        "<th>.gitignore</th><th>CLAUDE.md</th><th>Env Not Tracked</th>"
+        "</tr>"
+    )
+    audit_row = (
+        "<tr>"
+        f"<td>{_bool_cell(row['readme_present'])}</td>"
+        f"<td>{_bool_cell(row['tests_present'])}</td>"
+        f"<td>{docs_cell}</td>"
+        f"<td>{_bool_cell(row['gitignore_present'])}</td>"
+        f"<td>{_bool_cell(row['claude_md_present'])}</td>"
+        f"<td>{_bool_cell(row['env_not_tracked'])}</td>"
+        "</tr>"
+    )
+    table = f"<table><thead>{audit_header}</thead><tbody>{audit_row}</tbody></table>"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RepoPulse &mdash; Audit: {owner_esc}/{name_esc}</title>
+  <style>{_CSS}</style>
+</head>
+<body>
+  <h1>Developer Audit</h1>
+  <p><a href="/">&larr; Portfolio Overview</a></p>
+  <p style="font-size:0.9em">Developer: <strong>{dev_esc}</strong> &nbsp;|&nbsp; Project: <strong>{owner_esc}/{name_esc}</strong> &nbsp;|&nbsp; Captured At: {cap_esc}</p>
+  <h2 style="font-size:1.1em;margin-top:16px">File Audit</h2>
+  {table}
 </body>
 </html>"""
 
@@ -644,6 +752,26 @@ async def index(
 
     rows = _load_rows(status_filter=status, team_filter=team)
     html = _render_html(rows, status_filter=status, team_filter=team)
+    return HTMLResponse(content=html)
+
+
+@app.get("/audit", response_class=HTMLResponse)
+async def audit(
+    request: Request,
+    owner: Optional[str] = "",
+    name: Optional[str] = "",
+) -> HTMLResponse:
+    owner = (owner or "").strip()
+    name  = (name or "").strip()
+    if not owner or not name:
+        return HTMLResponse(content="<p>Missing owner or name parameter.</p>", status_code=400)
+    row = _load_audit_row(owner=owner, name=name)
+    if row is None:
+        return HTMLResponse(
+            content=f"<p>No snapshot found for {_esc(owner)}/{_esc(name)}.</p>",
+            status_code=404,
+        )
+    html = _render_audit_html(row)
     return HTMLResponse(content=html)
 
 

@@ -14,4 +14,4 @@ collection:
     enabled: true
   tree_scan:
     enabled: true
-    cache_hours: 24
+    cache_hours: 0
