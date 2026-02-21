@@ -141,6 +141,88 @@ pipeline immediately. The `exports/` directory is created if missing.
   in the `runs` table for per-repo errors.
 <!-- /MANAGED:TROUBLESHOOTING -->
 
+<!-- MANAGED:AUDIT_EXTENSION -->
+## Extending File Audit: Adding a New Dashboard Audit Column
+
+Follow this checklist whenever you want to add a new boolean hygiene field
+(e.g. `claude_md_present`) to the per-repo audit page.
+
+### Checklist
+
+**1. Collector — compute the signal and write it into `signals`**
+
+In `app/collector/tree_scan.py` (or the relevant collector), compute the value
+and add it to the `signals.update({...})` dict:
+
+```python
+try:
+    my_field = bool(self._exists(owner, name, "some-file"))
+except Exception:
+    my_field = False
+
+signals.update({
+    ...,
+    "my_field": my_field,
+})
+```
+
+Always use a standalone `try/except` so one field's failure cannot suppress
+the others. Wrap with `bool()` so the result is never `None`.
+
+**2. Schema — declare the field on `RepoSnapshot`**
+
+In `app/schemas.py`, add the field under `# Hygiene signals`:
+
+```python
+my_field: Optional[bool] = None
+```
+
+Without this, Pydantic silently drops the key during serialisation and it
+will never appear in `snapshot_json`.
+
+**3. Snapshot build / scoring — pass the value through**
+
+In `app/scoring/engine.py`, inside `ScoringEngine.score()`, add the field to
+the `RepoSnapshot(...)` constructor call alongside the other hygiene fields:
+
+```python
+my_field=signals.get("my_field"),
+```
+
+This is the bridge between raw signal dicts and the persisted JSON blob.
+
+**4. Dashboard — render ✅ / ❌ in the audit page**
+
+In `app/dashboard/server.py`:
+
+- `_load_audit_row`: add the key to the returned dict:
+  ```python
+  "my_field": snap.get("my_field", False),
+  ```
+- `_render_audit_html`: add a `<th>` to `audit_header` and a `<td>` to
+  `audit_row`:
+  ```python
+  "<th>My Field</th>"
+  f"<td>{_bool_cell(row['my_field'])}</td>"
+  ```
+
+**5. Tests (recommended)**
+
+Add a unit test in `tests/` that:
+- Constructs a snapshot dict with the new key set to `True` / `False`.
+- Calls the render/load helper and asserts the correct ✅ / ❌ cell appears.
+
+### Debug symptoms
+
+| Symptom | Most likely cause |
+|---|---|
+| Key absent from `snapshot_json` entirely | Schema field missing in `app/schemas.py` (Pydantic drops unknown extras) |
+| Key present in JSON but value is `null` | `app/scoring/engine.py` didn't pass it to `RepoSnapshot(...)` (falls back to `None` default) |
+| Key is `false` when you expect `true` | Collector logic wrong, API path incorrect, or a cached old snapshot is being read |
+| ❌ shown on audit page for a repo that has the file | Old snapshot in DB — re-run `repopulse snapshots run` to collect a fresh one |
+
+<!-- /MANAGED:AUDIT_EXTENSION -->
+
 <!-- MANAGED:OWNERSHIP_CHECKLIST -->
 ## Ownership Checklist
 
