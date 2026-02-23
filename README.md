@@ -57,6 +57,25 @@ repopulse deepdive queue --out exports/deepdive_queue.csv
 
 Dashboard mode starts the web server and blocks until Ctrl+C.
 
+### Web UI
+
+Start the dashboard (default: `http://127.0.0.1:8000`):
+
+```bash
+repopulse dashboard run
+repopulse dashboard run --host 0.0.0.0 --port 9000
+```
+
+| URL | Purpose |
+|---|---|
+| `/` | Portfolio overview — RYG status table, filters by status and team |
+| `/manage` | Register public GitHub repos by URL; trigger snapshot runs from the browser |
+| `/audit?owner=ORG&name=REPO` | Per-repo file hygiene audit (README, tests, docs, .gitignore, CLAUDE.md, .env) |
+| `/risks` | Risk heatmap — repos × risk flag categories |
+| `/support` | Ownership & support rollup by team / dev owner; apps needing attention |
+
+The **Generate snapshots** button on `/manage` runs collection and scoring in-process and redirects to the portfolio view with a result summary.
+
 ### Running Tests
 
 Use the same interpreter as the app to avoid version mismatches (e.g. 3.11 vs 3.12) when multiple Pythons are installed:
@@ -66,16 +85,23 @@ python -m pytest
 ```
 
 ### Adding Repos
-Edit `configs/repos.yaml`:
+
+**Via the web UI (recommended):**
+Navigate to `http://127.0.0.1:8000/manage` with the dashboard running.
+Paste one or more public GitHub URLs (one per line, `.git` suffix accepted), enter an optional team label, and click **Register repos**.
+The repos are written directly to the database — no file editing required.
+
+**Via `configs/repos.yaml` (batch / offline):**
 
 ```yaml
-repos:
-  - url: https://github.com/org/repo
-    owner: org
-    name: repo
-    dev_owner_name: Jane Smith   # optional
-    team: platform               # optional
+- url: https://github.com/org/repo
+  owner: org
+  name: repo
+  dev_owner_name: Jane Smith   # optional
+  team: platform               # optional
 ```
+
+Then run `repopulse snapshots run` to import the YAML into the DB and collect.
 
 ### Notes
 - CI is optional. Repos without GitHub Actions show `ci_status=none` and are not penalised.

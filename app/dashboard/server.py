@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import quote_plus
 
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import text
 
 from app.settings import Settings
@@ -173,6 +176,26 @@ tr:hover td { background: #f0f4f8; }
 .none { color: #aaa; }
 a { color: #2980b9; text-decoration: none; }
 a:hover { text-decoration: underline; }
+.nav-bar { font-size: 0.85em; margin-bottom: 12px; }
+.nav-bar a { margin-right: 14px; }
+.msg-box { padding: 10px 14px; border-radius: 4px; margin-bottom: 14px; font-size: 0.9em; }
+.msg-box.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.msg-box.info    { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+.invalid-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.invalid-list li { color: #c0392b; font-size: 0.85em; }
+form.manage-form { background: #fff; padding: 16px; border-radius: 6px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 16px; max-width: 680px; }
+form.manage-form label { display: block; margin-bottom: 6px; font-size: 0.9em; font-weight: 500; }
+form.manage-form textarea,
+form.manage-form input[type=text] { width: 100%; box-sizing: border-box; padding: 6px 8px;
+  border: 1px solid #ccc; border-radius: 3px; font-family: monospace; font-size: 0.85em; }
+form.manage-form textarea { height: 120px; resize: vertical; }
+.btn { display: inline-block; padding: 7px 16px; border-radius: 4px; border: none;
+  cursor: pointer; font-size: 0.9em; font-weight: bold; }
+.btn-primary { background: #2980b9; color: #fff; }
+.btn-primary:hover { background: #2471a3; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-success:hover { background: #1e8449; }
 """
 
 _FILTER_FORM = """
@@ -194,7 +217,7 @@ _FILTER_FORM = """
 _NONE = '<span class="none">—</span>'
 
 
-def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: str) -> str:
+def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: str, message: str = "") -> str:
     def sel(v: str) -> str:
         return ' selected' if status_filter == v else ''
 
@@ -275,6 +298,11 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
         if rows else "<p>No snapshots match the current filters.</p>"
     )
 
+    msg_html = (
+        f'<div class="msg-box info">{_esc(message)}</div>'
+        if message else ""
+    )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -285,6 +313,12 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
 </head>
 <body>
   <h1>RepoPulse Dashboard</h1>
+  <div class="nav-bar">
+    <a href="/manage">&#9881; Manage Repos</a>
+    <a href="/risks">Risk Heatmap</a>
+    <a href="/support">Ownership &amp; Support</a>
+  </div>
+  {msg_html}
   {counters_html}
   {cap_line}
   {filter_html}
@@ -750,14 +784,16 @@ async def index(
     request: Request,
     status: Optional[str] = "all",
     team: Optional[str] = "",
+    msg: Optional[str] = "",
 ) -> HTMLResponse:
     status = (status or "all").lower()
     if status not in ("all", "red", "yellow", "green"):
         status = "all"
     team = (team or "").strip()
+    message = (msg or "").strip()
 
     rows = _load_rows(status_filter=status, team_filter=team)
-    html = _render_html(rows, status_filter=status, team_filter=team)
+    html = _render_html(rows, status_filter=status, team_filter=team, message=message)
     return HTMLResponse(content=html)
 
 
@@ -803,6 +839,342 @@ async def support(
     rows = _load_support_rows(team_filter=team, stale_days=stale_days)
     html = _render_support_html(rows, team_filter=team, stale_days=stale_days)
     return HTMLResponse(content=html)
+
+
+# ---------------------------------------------------------------------------
+# Manage page — helpers
+# ---------------------------------------------------------------------------
+
+_GITHUB_PREFIX = "https://github.com/"
+_SEGMENT_RE = re.compile(r'^[A-Za-z0-9_.\-]+$')
+
+
+def _parse_github_url(raw: str) -> tuple[str, str]:
+    """Return (owner, name) parsed from a GitHub HTTPS URL.
+
+    Accepts trailing '/' and '.git' suffix.
+    Raises ValueError with a human-readable reason on failure.
+    """
+    url = raw.strip().rstrip("/")
+    if url.endswith(".git"):
+        url = url[:-4]
+    if not url.startswith(_GITHUB_PREFIX):
+        raise ValueError("must start with https://github.com/")
+    tail = url[len(_GITHUB_PREFIX):]
+    parts = [p for p in tail.split("/") if p]
+    if len(parts) < 2:
+        raise ValueError("cannot parse owner/name — expected https://github.com/owner/name")
+    owner, name = parts[0], parts[1]
+    if not _SEGMENT_RE.match(owner):
+        raise ValueError(f"invalid owner segment: {owner!r}")
+    if not _SEGMENT_RE.match(name):
+        raise ValueError(f"invalid repo name segment: {name!r}")
+    return owner, name
+
+
+def _upsert_repo(engine: Any, url: str, owner: str, name: str, team: str) -> str:
+    """Insert or update a repo row keyed on (owner, name).
+
+    Returns 'added' if a new row was created, 'updated' if an existing row
+    was modified.  Team is only overwritten when a non-empty team is supplied.
+    """
+    with engine.begin() as conn:
+        existing = conn.execute(
+            text("SELECT id, team FROM repos WHERE owner = :owner AND name = :name"),
+            {"owner": owner, "name": name},
+        ).fetchone()
+
+        if existing is None:
+            conn.execute(
+                text(
+                    "INSERT INTO repos (url, owner, name, dev_owner_name, team) "
+                    "VALUES (:url, :owner, :name, NULL, :team)"
+                ),
+                {"url": url, "owner": owner, "name": name, "team": team or None},
+            )
+            return "added"
+
+        # Row exists — update url; only overwrite team when caller supplied one
+        new_team = team if team else (existing.team or None)
+        conn.execute(
+            text(
+                "UPDATE repos SET url = :url, team = :team "
+                "WHERE owner = :owner AND name = :name"
+            ),
+            {"url": url, "owner": owner, "name": name, "team": new_team},
+        )
+        return "updated"
+
+
+def _run_snapshots_pipeline() -> dict[str, Any]:
+    """Run the collect → score → persist pipeline in-process.
+
+    Uses the DB as the authoritative repo list (does NOT reload from YAML),
+    so repos registered via the web UI are included.
+
+    Returns a summary dict with keys: processed, written, failures, timestamp.
+    """
+    # Lazy imports to keep module loading fast and avoid circular dependencies
+    from app.storage.db import init_db  # type: ignore
+    from app.storage.run_store import RunStore  # type: ignore
+    from app.storage.repo_store import RepoStore  # type: ignore
+    from app.storage.snapshot_store import SnapshotStore  # type: ignore
+    from app.github.github_client import GitHubClient  # type: ignore
+    from app.collector.commits import CommitsCollector  # type: ignore
+    from app.collector.actions import ActionsCollector  # type: ignore
+    from app.collector.releases import ReleasesCollector  # type: ignore
+    from app.collector.readme import ReadmeCollector  # type: ignore
+    from app.collector.tree_scan import TreeScanCollector  # type: ignore
+    from app.scoring.engine import ScoringEngine  # type: ignore
+    from app.reporting.csv_export import export_latest_snapshot_csv  # type: ignore
+
+    config_path  = Path("configs/default.yaml")
+    signals_path = Path("configs/signals.yaml")
+    out_csv      = Path("exports/latest_snapshot.csv")
+
+    s = Settings()
+    init_db(s.db_path)
+
+    run_store      = RunStore(s.db_path)
+    repo_store     = RepoStore(s.db_path)
+    snapshot_store = SnapshotStore(s.db_path)
+
+    run_id = run_store.start_run(
+        repos_path=Path("configs/repos.yaml"),  # informational only
+        config_path=config_path,
+        signals_path=signals_path,
+        db_path=s.db_path,
+        api_mode="token" if s.github_token else "no-token",
+    )
+
+    gh      = GitHubClient(token=s.github_token)
+    scoring = ScoringEngine.from_paths(config_path=config_path)
+
+    # DB is the source of truth — do NOT call import_from_yaml here
+    repos = repo_store.list_repos()
+
+    collectors = [
+        CommitsCollector(gh),
+        ActionsCollector(gh),
+        ReleasesCollector(gh),
+        ReadmeCollector(gh),
+        TreeScanCollector(gh),
+    ]
+
+    failures:  list[dict[str, str]] = []
+    snapshots: list[Any]            = []
+    captured_at = datetime.now(timezone.utc)
+
+    for r in repos:
+        try:
+            signals: dict[str, Any] = {
+                "repo": r,
+                "captured_at": captured_at,
+                "run_id": run_id,
+            }
+            for c in collectors:
+                signals = c.enrich(signals, signals_path=signals_path)
+            snap = scoring.score(signals)
+            snapshot_store.upsert_snapshot(snap)
+            snapshots.append(snap)
+        except Exception as exc:
+            failures.append({"repo": f"{r['owner']}/{r['name']}", "error": str(exc)})
+
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    export_latest_snapshot_csv(snapshots, out_csv)
+    run_store.finish_run(run_id, failures=failures, outputs={"latest_csv": str(out_csv)})
+
+    return {
+        "processed": len(repos),
+        "written":   len(snapshots),
+        "failures":  len(failures),
+        "timestamp": captured_at.isoformat(),
+    }
+
+
+def _load_manage_repos() -> list[dict[str, Any]]:
+    """Return all repos from the DB, ordered by owner/name."""
+    engine = get_engine(Settings().db_url)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT owner, name, url, dev_owner_name, team "
+                "FROM repos ORDER BY owner, name"
+            )
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def _render_manage_html(
+    repos: list[dict[str, Any]],
+    status: dict[str, Any] | None = None,
+) -> str:
+    """Render the /manage page with registration form, snapshot button, and repo table."""
+
+    # ---- status message area ------------------------------------------------
+    msg_html = ""
+    if status:
+        action = status.get("action", "")
+        if action == "register":
+            n_added   = status.get("added", 0)
+            n_updated = status.get("updated", 0)
+            n_invalid = status.get("invalid", 0)
+            summary = (
+                f"<strong>Added:</strong> {n_added} &nbsp; "
+                f"<strong>Updated:</strong> {n_updated} &nbsp; "
+                f"<strong>Skipped/Invalid:</strong> {n_invalid}"
+            )
+            invalid_items: list[dict[str, str]] = status.get("invalid_items", [])
+            inv_html = ""
+            if invalid_items:
+                items = "".join(
+                    f'<li>{_esc(item["line"])} &mdash; {_esc(item["reason"])}</li>'
+                    for item in invalid_items
+                )
+                inv_html = f'<ul class="invalid-list">{items}</ul>'
+            msg_html = f'<div class="msg-box success">{summary}{inv_html}</div>'
+
+    # ---- repo table ---------------------------------------------------------
+    if repos:
+        header = (
+            "<tr>"
+            "<th>Owner</th><th>Repo</th><th>Team</th>"
+            "<th>Developer</th><th>URL</th>"
+            "</tr>"
+        )
+        body_rows: list[str] = []
+        for r in repos:
+            team_cell = _esc(r.get("team") or "") or "Unassigned"
+            dev_cell  = _esc(r.get("dev_owner_name") or "") or _NONE
+            url_val   = r.get("url") or ""
+            url_cell  = (
+                f'<a href="{_esc(url_val)}" target="_blank" rel="noopener">'
+                f'{_esc(url_val)}</a>'
+                if url_val else _NONE
+            )
+            body_rows.append(
+                "<tr>"
+                f"<td>{_esc(r.get('owner', ''))}</td>"
+                f"<td>{_esc(r.get('name', ''))}</td>"
+                f"<td>{team_cell}</td>"
+                f"<td>{dev_cell}</td>"
+                f"<td>{url_cell}</td>"
+                "</tr>"
+            )
+        table_html = (
+            f"<table><thead>{header}</thead>"
+            f"<tbody>{''.join(body_rows)}</tbody></table>"
+        )
+    else:
+        table_html = "<p>No repos registered yet.</p>"
+
+    n_repos = len(repos)
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RepoPulse &mdash; Manage Repos</title>
+  <style>{_CSS}</style>
+</head>
+<body>
+  <h1>Manage Repos</h1>
+  <div class="nav-bar"><a href="/">&larr; Portfolio Overview</a></div>
+  {msg_html}
+  <form class="manage-form" method="post" action="/manage/register">
+    <label for="repo_urls">
+      GitHub repo URLs &mdash; one per line &mdash; <code>.git</code> suffix is fine:
+    </label>
+    <textarea id="repo_urls" name="repo_urls"
+      placeholder="https://github.com/owner/repo&#10;https://github.com/owner/repo2.git"></textarea>
+    <br><br>
+    <label for="team">
+      Team <span style="font-weight:normal;color:#777">(optional &mdash; applies to all URLs above)</span>:
+    </label>
+    <input type="text" id="team" name="team" placeholder="e.g. Core" size="32">
+    <br><br>
+    <button type="submit" class="btn btn-primary">Register repos</button>
+  </form>
+
+  <form method="post" action="/run/snapshots" style="margin-bottom:24px">
+    <button type="submit" class="btn btn-success">&#9654; Generate snapshots</button>
+    <span style="font-size:0.85em;color:#555;margin-left:10px">
+      Runs collection &amp; scoring for all {n_repos} registered repo(s),
+      then redirects to the portfolio view.
+    </span>
+  </form>
+
+  <h2 style="font-size:1.1em;margin-top:8px">Tracked Repos ({n_repos})</h2>
+  {table_html}
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Manage page — routes
+# ---------------------------------------------------------------------------
+
+@app.get("/manage", response_class=HTMLResponse)
+async def manage(request: Request) -> HTMLResponse:
+    repos = _load_manage_repos()
+    return HTMLResponse(content=_render_manage_html(repos))
+
+
+@app.post("/manage/register", response_class=HTMLResponse)
+async def manage_register(
+    repo_urls: str = Form(default=""),
+    team: str = Form(default=""),
+) -> HTMLResponse:
+    team = (team or "").strip()
+
+    raw_lines = [ln.strip() for ln in (repo_urls or "").splitlines()]
+    raw_lines = [ln for ln in raw_lines if ln]
+
+    engine = get_engine(Settings().db_url)
+    n_added   = 0
+    n_updated = 0
+    invalid_items: list[dict[str, str]] = []
+
+    for line in raw_lines:
+        try:
+            owner, name = _parse_github_url(line)
+        except ValueError as exc:
+            invalid_items.append({"line": line, "reason": str(exc)})
+            continue
+
+        canonical_url = f"{_GITHUB_PREFIX}{owner}/{name}"
+        result = _upsert_repo(engine, canonical_url, owner, name, team)
+        if result == "added":
+            n_added += 1
+        else:
+            n_updated += 1
+
+    repos = _load_manage_repos()
+    status = {
+        "action":        "register",
+        "added":         n_added,
+        "updated":       n_updated,
+        "invalid":       len(invalid_items),
+        "invalid_items": invalid_items,
+    }
+    return HTMLResponse(content=_render_manage_html(repos, status=status))
+
+
+@app.post("/run/snapshots")
+async def run_snapshots_web() -> RedirectResponse:
+    try:
+        result = _run_snapshots_pipeline()
+        msg = (
+            f"Snapshots updated: "
+            f"processed={result['processed']}, "
+            f"written={result['written']}, "
+            f"failures={result['failures']}"
+        )
+    except Exception as exc:
+        msg = f"Snapshot run failed: {exc}"
+
+    return RedirectResponse(url=f"/?msg={quote_plus(msg)}", status_code=303)
 
 
 # ---------------------------------------------------------------------------

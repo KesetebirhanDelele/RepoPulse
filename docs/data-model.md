@@ -87,6 +87,12 @@ Key fields used by reporting:
   "latest_release": "v1.2.0",
   "required_files_missing": [],
   "required_globs_missing": [],
+  "readme_present": true,          // TreeScanCollector: README.md/rst/txt found
+  "tests_present": true,           // TreeScanCollector: test files or test/ dir found
+  "docs_missing": [],              // TreeScanCollector: list of missing required doc paths
+  "gitignore_present": true,       // TreeScanCollector: .gitignore found
+  "env_not_tracked": true,         // TreeScanCollector: .env absent (true = safe)
+  "claude_md_present": true,       // TreeScanCollector: CLAUDE.md found at repo root
   "status_ryg": "green",           // "red"|"yellow"|"green"
   "status_explanation": "Meets configured freshness/CI/docs criteria.",
   "risk_flags": [
@@ -141,6 +147,21 @@ Example rule IDs defined in `default.yaml`:
 - `high_commits_no_release` — high commit volume but no recent tag/release
 - `refactor_heavy` — commit mix is predominantly refactor/chore
 - `contracts_churn_no_version` — contracts changing without a version marker
+
+### File Audit Booleans
+Set by `TreeScanCollector`. All default to `False` / empty when the collector
+is disabled or an error occurs during scanning.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `readme_present` | `bool` | `True` when a README file (any common extension) exists at the repo root |
+| `tests_present` | `bool` | `True` when test files matching known patterns are found, or a `tests/`/`test/` dir exists |
+| `docs_missing` | `list[str]` | Paths of required docs (`docs/architecture.md`, `docs/data-model.md`, `docs/operations.md`) that are absent |
+| `gitignore_present` | `bool` | `True` when `.gitignore` exists at the repo root |
+| `env_not_tracked` | `bool` | `True` (safe) when `.env` is **absent** from the repo; `False` means `.env` is committed (bad) |
+| `claude_md_present` | `bool` | `True` when `CLAUDE.md` exists at the repo root |
+
+These fields are surfaced on the `/audit` dashboard page and in the `/support` attention table.
 <!-- /MANAGED:FIELD_MEANINGS -->
 
 <!-- MANAGED:REPORTING_MAPPING -->

@@ -7,8 +7,8 @@ RepoPulse is a CLI-driven repo health monitoring tool. It collects signals from
 GitHub APIs, scores each repo against configurable thresholds, persists results
 to a SQL database (SQL Server or SQLite), and exports CSV reports for review.
 
-There is no web frontend. All interaction is via the `repopulse` CLI or the
-`scripts/run_weekly.ps1` automation script.
+Interaction is via the `repopulse` CLI, the `scripts/run_weekly.ps1` automation
+script, or the optional web dashboard (`repopulse dashboard run`).
 <!-- /MANAGED:OVERVIEW -->
 
 <!-- MANAGED:COMPONENTS -->
@@ -35,8 +35,8 @@ and independently enabled/disabled via `configs/signals.yaml`.
 | `CommitsCollector` | `last_commit_at`, `commits_24h`, `commits_7d`, `top_files_24h` | Falls back to a single latest-commit fetch when `commits_7d` is empty |
 | `ActionsCollector` | `ci_status`, `ci_conclusion`, `ci_updated_at` | 404 → `ci_status=none`; non-blocking |
 | `ReleasesCollector` | `latest_tag`, `latest_release` | — |
-| `ReadmeCollector` | `readme_sha`, `readme_updated_within_7d`, `readme_status_block_present` | — |
-| `TreeScanCollector` | `required_files_missing`, `required_globs_missing` | Cached per `cache_hours` in signals.yaml |
+| `ReadmeCollector` | *(stub — sets fields to `null`; not yet implemented)* | Placeholder for future README freshness signals |
+| `TreeScanCollector` | `readme_present`, `tests_present`, `docs_missing`, `gitignore_present`, `env_not_tracked`, `claude_md_present` | Scans git tree + Contents API; `claude_md_present` checked independently so one failure cannot suppress other fields |
 
 ### Scoring Engine (`app/scoring/engine.py`)
 Reads `configs/default.yaml` at runtime. Evaluates red/yellow/green rules and
@@ -60,36 +60,58 @@ Pure Python; writes CSV files to `exports/` (git-ignored).
 | `csv_export.py` | `latest_snapshot.csv` | Flat snapshot after each run |
 | `weekly.py` | `weekly.csv` | Rollup filtered by `--since` date |
 | `deepdive.py` | `deepdive_queue.csv` | Red/yellow repos + risk flags |
+
+### Dashboard (`app/dashboard/server.py`)
+FastAPI server; server-rendered HTML only — no JavaScript frontend.
+
+| Route | Purpose |
+|---|---|
+| `GET /` | Portfolio overview — RYG badge per repo, status/team filters, snapshot timestamp |
+| `GET /manage` | Register public GitHub repos by URL; trigger snapshot runs from the browser |
+| `POST /manage/register` | Upserts repos into the DB keyed on `(owner, name)`; returns Added/Updated/Invalid counts |
+| `POST /run/snapshots` | Runs the collect → score → persist pipeline in-process; redirects to `/` with a summary banner |
+| `GET /audit` | Per-repo file hygiene: README, tests, docs, .gitignore, CLAUDE.md, .env tracking |
+| `GET /risks` | Risk heatmap — repos × risk flag categories with RYG severity cells |
+| `GET /support` | Ownership & support rollup; team/dev-owner table + apps needing attention |
 <!-- /MANAGED:COMPONENTS -->
 
 <!-- MANAGED:DATA_FLOW -->
 ## Data Flow
 
 ```
-configs/repos.yaml
-       │
-       ▼
-  RepoStore.import_from_yaml()
-       │
-       ▼
+  configs/repos.yaml          POST /manage/register (web UI)
+         │                              │
+         ▼                              ▼
+  RepoStore.import_from_yaml()   _upsert_repo() → repos table
+         │                              │
+         └──────────────────────────────┘
+                        │
+                        ▼  repo_store.list_repos()
   For each repo:
     CommitsCollector → ActionsCollector → ReleasesCollector
     → ReadmeCollector → TreeScanCollector
     (signals dict enriched by each)
-       │
-       ▼
+                        │
+                        ▼
   ScoringEngine.score(signals)  ← configs/default.yaml
-       │
-       ▼
+                        │
+                        ▼
   SnapshotStore.upsert_snapshot()   →  snapshots table
   RunStore.finish_run()             →  runs table
-       │
-       ▼
+                        │
+                        ▼
   export_latest_snapshot_csv()  →  exports/latest_snapshot.csv
-       │
-       ▼ (on-demand)
+                        │
+                        ▼ (on-demand)
   export_weekly_csv()           →  exports/weekly.csv
   export_deepdive_queue_csv()   →  exports/deepdive_queue.csv
+
+  Dashboard (repopulse dashboard run):
+    GET /   →  reads snapshots table  →  portfolio HTML
+    GET /manage  →  reads repos table  →  manage HTML
+    GET /audit   →  reads snapshots table  →  audit HTML
+    GET /risks   →  reads snapshots table  →  heatmap HTML
+    GET /support →  reads snapshots table  →  support HTML
 ```
 <!-- /MANAGED:DATA_FLOW -->
 
