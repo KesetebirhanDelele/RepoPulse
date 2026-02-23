@@ -67,6 +67,22 @@ repopulse deepdive queue --out exports/deepdive_queue.csv
 Writes repos that are red/yellow or have active risk flags, with a
 human-readable reason string.
 
+### Start the web dashboard
+```bash
+repopulse dashboard run
+repopulse dashboard run --host 0.0.0.0 --port 9000
+```
+Starts a local FastAPI server (default `http://127.0.0.1:8000`).
+Blocks until Ctrl+C. Available pages:
+
+| URL | Purpose |
+|---|---|
+| `/` | Portfolio overview — RYG status, status/team filters, snapshot timestamp |
+| `/manage` | Register public GitHub repos by URL; trigger snapshot runs in-browser |
+| `/audit?owner=ORG&name=REPO` | Per-repo file hygiene (README, tests, docs, .gitignore, CLAUDE.md, .env) |
+| `/risks` | Risk heatmap — repos × risk flag categories |
+| `/support` | Ownership & support rollup; apps needing attention |
+
 > **Note:** `exports/` is git-ignored. Do not commit CSV files.
 <!-- /MANAGED:RUN -->
 
@@ -242,6 +258,15 @@ Add a unit test in `tests/` that:
 ## Ownership Checklist
 
 ### Add a new repo
+
+**Option A — web UI (recommended):**
+1. Open `http://127.0.0.1:8000/manage` with the dashboard running.
+2. Paste one or more public GitHub URLs (one per line, `.git` suffix accepted).
+3. Enter an optional team label and click **Register repos**.
+4. Click **Generate snapshots** (or run `repopulse snapshots run`) to collect immediately.
+5. Verify the repo appears on the portfolio page or in `exports/latest_snapshot.csv`.
+
+**Option B — YAML import:**
 1. Edit `configs/repos.yaml` — add a new entry:
    ```yaml
    - url: "https://github.com/org/newrepo"
@@ -250,7 +275,7 @@ Add a unit test in `tests/` that:
      dev_owner_name: "Owner Name"   # optional
      team: "platform"               # optional
    ```
-2. Run `repopulse snapshots run` to collect and score immediately.
+2. Run `repopulse snapshots run` (which re-imports the YAML into the DB) to collect and score immediately.
 3. Verify the repo appears in `exports/latest_snapshot.csv`.
 
 ### Rotate the GitHub token
