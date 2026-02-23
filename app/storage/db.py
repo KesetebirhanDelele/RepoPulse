@@ -15,3 +15,4 @@ def init_db(db_path: Path) -> None:
     """
     engine = sa.get_engine(Settings().db_url)
     sa.init_db(engine)
+    sa.migrate_db(engine)

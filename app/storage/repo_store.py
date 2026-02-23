@@ -45,8 +45,8 @@ class RepoStore:
         with self._engine.begin() as conn:
             conn.execute(
                 text("""
-                    INSERT INTO repos (url, owner, name, dev_owner_name, team)
-                    VALUES (:url, :owner, :name, :dev_owner_name, :team)
+                    INSERT INTO repos (url, owner, name, dev_owner_name, team, active)
+                    VALUES (:url, :owner, :name, :dev_owner_name, :team, 1)
                     ON CONFLICT DO NOTHING
                 """),
                 {
@@ -78,29 +78,58 @@ class RepoStore:
 
         count = 0
         with self._engine.begin() as conn:
-            conn.execute(text("DELETE FROM repos"))
             for r in repos:
-                conn.execute(
-                    text("""
-                        INSERT INTO repos (url, owner, name, dev_owner_name, team)
-                        VALUES (:url, :owner, :name, :dev_owner_name, :team)
-                    """),
-                    {
-                        "url": r.get("url", ""),
-                        "owner": r.get("owner", ""),
-                        "name": r.get("name", ""),
-                        "dev_owner_name": r.get("dev_owner_name"),
-                        "team": r.get("team"),
-                    },
-                )
+                owner = r.get("owner", "")
+                name  = r.get("name", "")
+                if not owner or not name:
+                    continue
+                existing = conn.execute(
+                    text("SELECT id FROM repos WHERE owner = :owner AND name = :name"),
+                    {"owner": owner, "name": name},
+                ).fetchone()
+                if existing is None:
+                    conn.execute(
+                        text("""
+                            INSERT INTO repos (url, owner, name, dev_owner_name, team, active)
+                            VALUES (:url, :owner, :name, :dev_owner_name, :team, 1)
+                        """),
+                        {
+                            "url": r.get("url", ""),
+                            "owner": owner,
+                            "name": name,
+                            "dev_owner_name": r.get("dev_owner_name"),
+                            "team": r.get("team"),
+                        },
+                    )
+                else:
+                    # Update metadata but preserve the active flag set via the web UI
+                    conn.execute(
+                        text("""
+                            UPDATE repos
+                            SET url = :url, dev_owner_name = :dev_owner_name, team = :team
+                            WHERE owner = :owner AND name = :name
+                        """),
+                        {
+                            "url": r.get("url", ""),
+                            "owner": owner,
+                            "name": name,
+                            "dev_owner_name": r.get("dev_owner_name"),
+                            "team": r.get("team"),
+                        },
+                    )
                 count += 1
         return count
 
 
-    def list_repos(self) -> list[dict]:
-        """Return all repos as a list of dicts with keys owner, name, url, dev_owner_name, team."""
+    def list_repos(self, active_only: bool = True) -> list[dict]:
+        """Return repos as a list of dicts.
+
+        If active_only (default), only returns repos where active = 1 so that
+        snapshot runs and reports exclude deactivated repos.
+        """
+        sql = "SELECT owner, name, url, dev_owner_name, team, active FROM repos"
+        if active_only:
+            sql += " WHERE active = 1"
         with self._engine.begin() as conn:
-            rows = conn.execute(
-                text("SELECT owner, name, url, dev_owner_name, team FROM repos")
-            ).mappings().all()
+            rows = conn.execute(text(sql)).mappings().all()
         return [dict(r) for r in rows]

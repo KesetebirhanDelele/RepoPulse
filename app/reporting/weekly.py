@@ -53,11 +53,13 @@ _SINCE_SQL = text("""
         ON  s.owner       = latest.owner
         AND s.name        = latest.name
         AND s.captured_at = latest.max_cap
+    INNER JOIN repos r
+        ON  r.owner = s.owner AND r.name = s.name AND r.active = 1
     WHERE s.captured_at >= :since
 """)
 
 
-_DOCS_DEFAULT = "docs/architecture.md;docs/data-model.md;docs/operations.md"
+_DOCS_DEFAULT = "docs/architecture.md;docs/data-model.md;docs/operations.md;docs/project-plan.md"
 
 
 def _risk_ids(risk_flags: list[Any]) -> str:

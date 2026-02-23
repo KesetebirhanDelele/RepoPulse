@@ -21,7 +21,7 @@ _FIELDS = ["owner", "name", "team", "dev_owner_name", "status_ryg", "reason", "c
 
 _RYG_ORDER = {"red": 0, "yellow": 1, "green": 2}
 
-# SQL: one row per (owner, name) at its latest captured_at
+# SQL: one row per active (owner, name) at its latest captured_at
 _LATEST_SNAPSHOTS_SQL = text("""
     SELECT s.owner, s.name, s.captured_at, s.snapshot_json
     FROM snapshots s
@@ -33,6 +33,8 @@ _LATEST_SNAPSHOTS_SQL = text("""
         ON  s.owner      = latest.owner
         AND s.name       = latest.name
         AND s.captured_at = latest.max_cap
+    INNER JOIN repos r
+        ON  r.owner = s.owner AND r.name = s.name AND r.active = 1
 """)
 
 
