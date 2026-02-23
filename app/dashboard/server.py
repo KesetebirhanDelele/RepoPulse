@@ -22,6 +22,22 @@ from app.storage.sa import get_engine
 # ---------------------------------------------------------------------------
 
 _LATEST_SQL = text("""
+    SELECT s.owner, s.name, s.captured_at, s.snapshot_json,
+           COALESCE(r.active, 1) AS active
+    FROM snapshots s
+    INNER JOIN (
+        SELECT owner, name, MAX(captured_at) AS max_cap
+        FROM snapshots
+        GROUP BY owner, name
+    ) latest
+        ON  s.owner       = latest.owner
+        AND s.name        = latest.name
+        AND s.captured_at = latest.max_cap
+    LEFT JOIN repos r ON r.owner = s.owner AND r.name = s.name
+    ORDER BY s.owner, s.name
+""")
+
+_LATEST_ACTIVE_SQL = text("""
     SELECT s.owner, s.name, s.captured_at, s.snapshot_json
     FROM snapshots s
     INNER JOIN (
@@ -32,6 +48,7 @@ _LATEST_SQL = text("""
         ON  s.owner       = latest.owner
         AND s.name        = latest.name
         AND s.captured_at = latest.max_cap
+    INNER JOIN repos r ON r.owner = s.owner AND r.name = s.name AND r.active = 1
     ORDER BY s.owner, s.name
 """)
 
@@ -103,7 +120,7 @@ def _format_risk_flags(raw: Any) -> str:
 # Data loading
 # ---------------------------------------------------------------------------
 
-def _load_rows(status_filter: str, team_filter: str) -> list[dict[str, Any]]:
+def _load_rows(status_filter: str, team_filter: str, show_filter: str = "active") -> list[dict[str, Any]]:
     engine = get_engine(Settings().db_url)
     rows: list[dict[str, Any]] = []
 
@@ -118,7 +135,10 @@ def _load_rows(status_filter: str, team_filter: str) -> list[dict[str, Any]]:
             repo = snap.get("repo") or {}
             team = repo.get("team") or ""
             status_ryg = snap.get("status_ryg") or ""
+            is_active = (db_row.active if db_row.active is not None else 1) != 0
 
+            if show_filter == "active" and not is_active:
+                continue
             if status_filter and status_filter != "all" and status_ryg != status_filter:
                 continue
             if team_filter and team != team_filter:
@@ -144,6 +164,7 @@ def _load_rows(status_filter: str, team_filter: str) -> list[dict[str, Any]]:
                 "latest_tag":       snap.get("latest_tag") or "",
                 "latest_release":   snap.get("latest_release") or "",
                 "captured_at":      str(db_row.captured_at),
+                "is_active":        is_active,
             })
 
     rows.sort(key=lambda r: (_RYG_ORDER.get(r["status_ryg"], 9), r["owner"], r["name"]))
@@ -196,6 +217,13 @@ form.manage-form textarea { height: 120px; resize: vertical; }
 .btn-primary:hover { background: #2471a3; }
 .btn-success { background: #27ae60; color: #fff; }
 .btn-success:hover { background: #1e8449; }
+.btn-danger { background: #c0392b; color: #fff; }
+.btn-danger:hover { background: #a93226; }
+.btn-warn   { background: #e67e22; color: #fff; }
+.btn-warn:hover { background: #d35400; }
+.badge-inactive { display:inline-block; background:#95a5a6; color:#fff; padding:1px 6px;
+  border-radius:3px; font-size:0.78em; font-weight:bold; vertical-align:middle; }
+tr.row-inactive td { color:#aaa; background:#fafafa; }
 """
 
 _FILTER_FORM = """
@@ -208,6 +236,12 @@ _FILTER_FORM = """
       <option value="green"{sel_green}>Green</option>
     </select>
   </label>
+  <label>Show:
+    <select name="show" onchange="this.form.submit()">
+      <option value="active"{sel_show_active}>Active only</option>
+      <option value="all"{sel_show_all}>All (incl. inactive)</option>
+    </select>
+  </label>
   <label>Team: <input name="team" value="{team_val}" size="16">
     <button type="submit">Filter</button>
   </label>
@@ -217,9 +251,12 @@ _FILTER_FORM = """
 _NONE = '<span class="none">—</span>'
 
 
-def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: str, message: str = "") -> str:
+def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: str, message: str = "", show_filter: str = "active") -> str:
     def sel(v: str) -> str:
         return ' selected' if status_filter == v else ''
+
+    def sel_show(v: str) -> str:
+        return ' selected' if show_filter == v else ''
 
     filter_html = _FILTER_FORM.format(
         sel_all=sel("all"),
@@ -227,6 +264,8 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
         sel_yellow=sel("yellow"),
         sel_green=sel("green"),
         team_val=_esc(team_filter),
+        sel_show_active=sel_show("active"),
+        sel_show_all=sel_show("all"),
     )
 
     # Counters (respecting current filters)
@@ -268,10 +307,15 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
     for r in rows:
         owner_esc = _esc(r["owner"])
         name_esc  = _esc(r["name"])
+        inactive_badge = (
+            '<span class="badge-inactive">Inactive</span> '
+            if not r.get("is_active", True) else ""
+        )
         repo_link = (
-            f'<a href="/audit?owner={owner_esc}&amp;name={name_esc}">'
+            f'{inactive_badge}<a href="/audit?owner={owner_esc}&amp;name={name_esc}">'
             f'{owner_esc}/{name_esc}</a>'
         )
+        tr_class = '' if r.get("is_active", True) else ' class="row-inactive"'
 
         dev_cell = _esc(r["dev_owner"]) if r["dev_owner"] else _NONE
         commits  = _esc(r["commits_7d"]) if r["commits_7d"] != "" else _NONE
@@ -281,7 +325,7 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
         rf_cell = _esc(rf_str) if rf_str else _NONE
 
         body_rows.append(
-            f"<tr>"
+            f"<tr{tr_class}>"
             f"<td>{repo_link}</td>"
             f"<td>{dev_cell}</td>"
             f"<td>{commits}</td>"
@@ -315,7 +359,6 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
   <h1>RepoPulse Dashboard</h1>
   <div class="nav-bar">
     <a href="/manage">&#9881; Manage Repos</a>
-    <a href="/risks">Risk Heatmap</a>
     <a href="/support">Ownership &amp; Support</a>
   </div>
   {msg_html}
@@ -328,131 +371,6 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
 
 
 # ---------------------------------------------------------------------------
-# Risk heatmap helpers
-# ---------------------------------------------------------------------------
-
-_SEV_ORDER = {"red": 0, "yellow": 1, "green": 2}
-
-
-def _flag_category(rf: dict[str, Any]) -> str:
-    """Return the display category for a single risk flag dict."""
-    label = (rf.get("label") or "").strip()
-    if label:
-        return label
-    rid = rf.get("id") or ""
-    return rid.split("_")[0] if rid else "unknown"
-
-
-def _highest_severity(flags: list[dict[str, Any]], category: str) -> str | None:
-    """Return the highest severity (red > yellow > green) for flags matching category, or None."""
-    best: str | None = None
-    for rf in flags:
-        if not isinstance(rf, dict):
-            continue
-        if _flag_category(rf) != category:
-            continue
-        sev = (rf.get("severity") or "").lower()
-        if sev not in _SEV_ORDER:
-            continue
-        if best is None or _SEV_ORDER[sev] < _SEV_ORDER[best]:
-            best = sev
-    return best
-
-
-def _load_risk_rows(team_filter: str) -> tuple[list[dict[str, Any]], list[str]]:
-    """Return (rows, sorted_categories).
-
-    Each row contains: owner, name, team, flags (list of risk flag dicts).
-    categories is the union of all flag categories across all rows, sorted.
-    """
-    engine = get_engine(Settings().db_url)
-    rows: list[dict[str, Any]] = []
-    categories: set[str] = set()
-
-    with engine.connect() as conn:
-        result = conn.execute(_LATEST_SQL)
-        for db_row in result:
-            try:
-                snap: dict[str, Any] = json.loads(db_row.snapshot_json)
-            except Exception:
-                continue
-
-            repo = snap.get("repo") or {}
-            team = repo.get("team") or ""
-
-            if team_filter and team != team_filter:
-                continue
-
-            flags = [rf for rf in (snap.get("risk_flags") or []) if isinstance(rf, dict)]
-            for rf in flags:
-                categories.add(_flag_category(rf))
-
-            rows.append({
-                "owner": db_row.owner,
-                "name":  db_row.name,
-                "team":  team,
-                "flags": flags,
-            })
-
-    rows.sort(key=lambda r: (r["owner"], r["name"]))
-    return rows, sorted(categories)
-
-
-def _render_risks_html(
-    rows: list[dict[str, Any]],
-    categories: list[str],
-    team_filter: str,
-) -> str:
-    filter_html = (
-        '<form method="get" class="filters">'
-        f'  <label>Team: <input name="team" value="{_esc(team_filter)}" size="16">'
-        '    <button type="submit">Filter</button>'
-        '  </label>'
-        '</form>'
-    )
-
-    if not rows:
-        body = "<p>No repos match the current filter.</p>"
-    else:
-        # Header
-        fixed_headers = "<th>Repo</th><th>Team</th>"
-        cat_headers = "".join(f"<th>{_esc(c)}</th>" for c in categories)
-        header = f"<tr>{fixed_headers}{cat_headers}</tr>"
-
-        # Body
-        body_rows: list[str] = []
-        for r in rows:
-            owner_esc = _esc(r["owner"])
-            name_esc  = _esc(r["name"])
-            repo_link = f'<a href="/">{owner_esc}/{name_esc}</a>'
-            team_cell = _esc(r["team"]) if r["team"] else _NONE
-
-            cells = f"<td>{repo_link}</td><td>{team_cell}</td>"
-            for cat in categories:
-                sev = _highest_severity(r["flags"], cat)
-                cells += f"<td>{_badge(sev) if sev else ''}</td>"
-            body_rows.append(f"<tr>{cells}</tr>")
-
-        body = f"<table><thead>{header}</thead><tbody>{''.join(body_rows)}</tbody></table>"
-
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>RepoPulse — Risk Heatmap</title>
-  <style>{_CSS}</style>
-</head>
-<body>
-  <h1>Risk Heatmap</h1>
-  <p><a href="/">&larr; Portfolio Overview</a></p>
-  {filter_html}
-  {body}
-</body>
-</html>"""
-
-
-# ---------------------------------------------------------------------------
 # Developer audit helpers
 # ---------------------------------------------------------------------------
 
@@ -460,6 +378,7 @@ _AUDIT_DOCS_DEFAULTS = [
     "docs/architecture.md",
     "docs/data-model.md",
     "docs/operations.md",
+    "docs/project-plan.md",
 ]
 
 
@@ -587,7 +506,7 @@ def _load_support_rows(team_filter: str, stale_days: int) -> list[dict[str, Any]
     rows: list[dict[str, Any]] = []
 
     with engine.connect() as conn:
-        result = conn.execute(_LATEST_SQL)
+        result = conn.execute(_LATEST_ACTIVE_SQL)
         for db_row in result:
             try:
                 snap: dict[str, Any] = json.loads(db_row.snapshot_json)
@@ -785,15 +704,19 @@ async def index(
     status: Optional[str] = "all",
     team: Optional[str] = "",
     msg: Optional[str] = "",
+    show: Optional[str] = "active",
 ) -> HTMLResponse:
     status = (status or "all").lower()
     if status not in ("all", "red", "yellow", "green"):
         status = "all"
     team = (team or "").strip()
     message = (msg or "").strip()
+    show_f = (show or "active").lower()
+    if show_f not in ("active", "all"):
+        show_f = "active"
 
-    rows = _load_rows(status_filter=status, team_filter=team)
-    html = _render_html(rows, status_filter=status, team_filter=team, message=message)
+    rows = _load_rows(status_filter=status, team_filter=team, show_filter=show_f)
+    html = _render_html(rows, status_filter=status, team_filter=team, message=message, show_filter=show_f)
     return HTMLResponse(content=html)
 
 
@@ -814,17 +737,6 @@ async def audit(
             status_code=404,
         )
     html = _render_audit_html(row)
-    return HTMLResponse(content=html)
-
-
-@app.get("/risks", response_class=HTMLResponse)
-async def risks(
-    request: Request,
-    team: Optional[str] = "",
-) -> HTMLResponse:
-    team = (team or "").strip()
-    rows, categories = _load_risk_rows(team_filter=team)
-    html = _render_risks_html(rows, categories, team_filter=team)
     return HTMLResponse(content=html)
 
 
@@ -887,8 +799,8 @@ def _upsert_repo(engine: Any, url: str, owner: str, name: str, team: str) -> str
         if existing is None:
             conn.execute(
                 text(
-                    "INSERT INTO repos (url, owner, name, dev_owner_name, team) "
-                    "VALUES (:url, :owner, :name, NULL, :team)"
+                    "INSERT INTO repos (url, owner, name, dev_owner_name, team, active) "
+                    "VALUES (:url, :owner, :name, NULL, :team, 1)"
                 ),
                 {"url": url, "owner": owner, "name": name, "team": team or None},
             )
@@ -993,12 +905,13 @@ def _run_snapshots_pipeline() -> dict[str, Any]:
 
 
 def _load_manage_repos() -> list[dict[str, Any]]:
-    """Return all repos from the DB, ordered by owner/name."""
+    """Return all repos from the DB (active and inactive), ordered by owner/name."""
     engine = get_engine(Settings().db_url)
     with engine.connect() as conn:
         rows = conn.execute(
             text(
-                "SELECT owner, name, url, dev_owner_name, team "
+                "SELECT owner, name, url, dev_owner_name, team, "
+                "COALESCE(active, 1) AS active "
                 "FROM repos ORDER BY owner, name"
             )
         ).mappings().all()
@@ -1008,12 +921,15 @@ def _load_manage_repos() -> list[dict[str, Any]]:
 def _render_manage_html(
     repos: list[dict[str, Any]],
     status: dict[str, Any] | None = None,
+    banner: str = "",
 ) -> str:
     """Render the /manage page with registration form, snapshot button, and repo table."""
 
-    # ---- status message area ------------------------------------------------
+    # ---- message area -------------------------------------------------------
     msg_html = ""
-    if status:
+    if banner:
+        msg_html = f'<div class="msg-box success">{_esc(banner)}</div>'
+    elif status:
         action = status.get("action", "")
         if action == "register":
             n_added   = status.get("added", 0)
@@ -1034,31 +950,59 @@ def _render_manage_html(
                 inv_html = f'<ul class="invalid-list">{items}</ul>'
             msg_html = f'<div class="msg-box success">{summary}{inv_html}</div>'
 
+    # ---- counts -------------------------------------------------------------
+    n_active   = sum(1 for r in repos if r.get("active", 1) != 0)
+    n_inactive = len(repos) - n_active
+    n_repos    = len(repos)
+    count_label = f"{n_repos} total ({n_active} active"
+    if n_inactive:
+        count_label += f", {n_inactive} inactive"
+    count_label += ")"
+
     # ---- repo table ---------------------------------------------------------
     if repos:
         header = (
             "<tr>"
             "<th>Owner</th><th>Repo</th><th>Team</th>"
-            "<th>Developer</th><th>URL</th>"
+            "<th>Developer</th><th>URL</th><th>Actions</th>"
             "</tr>"
         )
         body_rows: list[str] = []
         for r in repos:
-            team_cell = _esc(r.get("team") or "") or "Unassigned"
-            dev_cell  = _esc(r.get("dev_owner_name") or "") or _NONE
-            url_val   = r.get("url") or ""
-            url_cell  = (
-                f'<a href="{_esc(url_val)}" target="_blank" rel="noopener">'
-                f'{_esc(url_val)}</a>'
+            is_active    = r.get("active", 1) != 0
+            tr_class     = '' if is_active else ' class="row-inactive"'
+            inact_badge  = '' if is_active else '<span class="badge-inactive">Inactive</span> '
+            team_cell    = _esc(r.get("team") or "") or "Unassigned"
+            dev_cell     = _esc(r.get("dev_owner_name") or "") or _NONE
+            url_val      = r.get("url") or ""
+            url_cell     = (
+                f'<a href="{_esc(url_val)}" target="_blank" rel="noopener">{_esc(url_val)}</a>'
                 if url_val else _NONE
             )
+            owner_e = _esc(r.get("owner", ""))
+            name_e  = _esc(r.get("name", ""))
+            edit_link = (
+                f'<a href="/manage/edit?owner={owner_e}&amp;name={name_e}">Edit</a>'
+            )
+            toggle_label = "Deactivate" if is_active else "Reactivate"
+            toggle_cls   = "btn-danger" if is_active else "btn-warn"
+            toggle_form  = (
+                f'<form method="post" action="/manage/toggle"'
+                f' style="display:inline;margin-left:6px">'
+                f'<input type="hidden" name="owner" value="{owner_e}">'
+                f'<input type="hidden" name="name" value="{name_e}">'
+                f'<button type="submit" class="btn {toggle_cls}"'
+                f' style="padding:3px 8px;font-size:0.8em">{toggle_label}</button>'
+                f'</form>'
+            )
             body_rows.append(
-                "<tr>"
-                f"<td>{_esc(r.get('owner', ''))}</td>"
-                f"<td>{_esc(r.get('name', ''))}</td>"
+                f"<tr{tr_class}>"
+                f"<td>{inact_badge}{owner_e}</td>"
+                f"<td>{name_e}</td>"
                 f"<td>{team_cell}</td>"
                 f"<td>{dev_cell}</td>"
                 f"<td>{url_cell}</td>"
+                f"<td style='white-space:nowrap'>{edit_link}{toggle_form}</td>"
                 "</tr>"
             )
         table_html = (
@@ -1067,8 +1011,6 @@ def _render_manage_html(
         )
     else:
         table_html = "<p>No repos registered yet.</p>"
-
-    n_repos = len(repos)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1100,12 +1042,12 @@ def _render_manage_html(
   <form method="post" action="/run/snapshots" style="margin-bottom:24px">
     <button type="submit" class="btn btn-success">&#9654; Generate snapshots</button>
     <span style="font-size:0.85em;color:#555;margin-left:10px">
-      Runs collection &amp; scoring for all {n_repos} registered repo(s),
+      Runs collection &amp; scoring for all {n_active} active repo(s),
       then redirects to the portfolio view.
     </span>
   </form>
 
-  <h2 style="font-size:1.1em;margin-top:8px">Tracked Repos ({n_repos})</h2>
+  <h2 style="font-size:1.1em;margin-top:8px">Tracked Repos ({count_label})</h2>
   {table_html}
 </body>
 </html>"""
@@ -1115,10 +1057,57 @@ def _render_manage_html(
 # Manage page — routes
 # ---------------------------------------------------------------------------
 
+def _render_edit_html(repo: dict[str, Any]) -> str:
+    """Render the /manage/edit form for a single repo."""
+    owner_esc  = _esc(repo.get("owner", ""))
+    name_esc   = _esc(repo.get("name", ""))
+    url_esc    = _esc(repo.get("url") or "")
+    team_esc   = _esc(repo.get("team") or "")
+    dev_esc    = _esc(repo.get("dev_owner_name") or "")
+    active_val = repo.get("active", 1)
+    active_txt = "Active" if active_val else "Inactive"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>RepoPulse &mdash; Edit {owner_esc}/{name_esc}</title>
+  <style>{_CSS}</style>
+</head>
+<body>
+  <h1>Edit Repo</h1>
+  <div class="nav-bar"><a href="/manage">&larr; Back to Manage</a></div>
+  <p style="font-size:0.9em">
+    <strong>{owner_esc}/{name_esc}</strong>
+    &nbsp;&mdash;&nbsp; Status: <strong>{active_txt}</strong>
+    <span style="color:#777;font-size:0.85em">
+      (use Deactivate / Reactivate on the Manage page to change)
+    </span>
+  </p>
+  <form class="manage-form" method="post" action="/manage/edit">
+    <input type="hidden" name="owner" value="{owner_esc}">
+    <input type="hidden" name="name"  value="{name_esc}">
+    <label for="url">URL:</label>
+    <input type="text" id="url" name="url" value="{url_esc}">
+    <br><br>
+    <label for="team">Team <span style="font-weight:normal;color:#777">(optional)</span>:</label>
+    <input type="text" id="team" name="team" value="{team_esc}" placeholder="e.g. Core" size="32">
+    <br><br>
+    <label for="dev_owner_name">Developer name <span style="font-weight:normal;color:#777">(optional)</span>:</label>
+    <input type="text" id="dev_owner_name" name="dev_owner_name" value="{dev_esc}" size="40">
+    <br><br>
+    <button type="submit" class="btn btn-primary">Save changes</button>
+    <a href="/manage" style="margin-left:12px;font-size:0.9em">Cancel</a>
+  </form>
+</body>
+</html>"""
+
+
 @app.get("/manage", response_class=HTMLResponse)
-async def manage(request: Request) -> HTMLResponse:
+async def manage(request: Request, msg: Optional[str] = "") -> HTMLResponse:
     repos = _load_manage_repos()
-    return HTMLResponse(content=_render_manage_html(repos))
+    return HTMLResponse(content=_render_manage_html(repos, banner=(msg or "").strip()))
 
 
 @app.post("/manage/register", response_class=HTMLResponse)
@@ -1159,6 +1148,95 @@ async def manage_register(
         "invalid_items": invalid_items,
     }
     return HTMLResponse(content=_render_manage_html(repos, status=status))
+
+
+@app.get("/manage/edit", response_class=HTMLResponse)
+async def manage_edit_get(
+    request: Request,
+    owner: Optional[str] = "",
+    name: Optional[str] = "",
+) -> HTMLResponse:
+    owner = (owner or "").strip()
+    name  = (name or "").strip()
+    if not owner or not name:
+        return HTMLResponse("Missing owner or name parameter.", status_code=400)
+
+    engine = get_engine(Settings().db_url)
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT url, owner, name, dev_owner_name, team, "
+                "COALESCE(active, 1) AS active "
+                "FROM repos WHERE owner = :owner AND name = :name"
+            ),
+            {"owner": owner, "name": name},
+        ).fetchone()
+
+    if row is None:
+        return HTMLResponse(
+            f"<p>Repo {_esc(owner)}/{_esc(name)} not found.</p>", status_code=404
+        )
+    return HTMLResponse(content=_render_edit_html(dict(row._mapping)))
+
+
+@app.post("/manage/edit")
+async def manage_edit_post(
+    owner:          str = Form(default=""),
+    name:           str = Form(default=""),
+    url:            str = Form(default=""),
+    team:           str = Form(default=""),
+    dev_owner_name: str = Form(default=""),
+) -> RedirectResponse:
+    owner          = (owner or "").strip()
+    name           = (name or "").strip()
+    url_val        = (url or "").strip() or None
+    team_val       = (team or "").strip() or None
+    dev_val        = (dev_owner_name or "").strip() or None
+
+    engine = get_engine(Settings().db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE repos SET url = :url, team = :team, dev_owner_name = :dev "
+                "WHERE owner = :owner AND name = :name"
+            ),
+            {"url": url_val, "team": team_val, "dev": dev_val, "owner": owner, "name": name},
+        )
+
+    msg = f"Updated {owner}/{name}."
+    return RedirectResponse(url=f"/manage?msg={quote_plus(msg)}", status_code=303)
+
+
+@app.post("/manage/toggle")
+async def manage_toggle(
+    owner: str = Form(default=""),
+    name:  str = Form(default=""),
+) -> RedirectResponse:
+    owner = (owner or "").strip()
+    name  = (name or "").strip()
+
+    engine = get_engine(Settings().db_url)
+    with engine.begin() as conn:
+        row = conn.execute(
+            text("SELECT active FROM repos WHERE owner = :owner AND name = :name"),
+            {"owner": owner, "name": name},
+        ).fetchone()
+
+        if row is not None:
+            new_active   = 0 if (row.active if row.active is not None else 1) else 1
+            action_word  = "deactivated" if new_active == 0 else "reactivated"
+            conn.execute(
+                text(
+                    "UPDATE repos SET active = :active "
+                    "WHERE owner = :owner AND name = :name"
+                ),
+                {"active": new_active, "owner": owner, "name": name},
+            )
+            msg = f"{owner}/{name} {action_word}."
+        else:
+            msg = f"Repo {owner}/{name} not found."
+
+    return RedirectResponse(url=f"/manage?msg={quote_plus(msg)}", status_code=303)
 
 
 @app.post("/run/snapshots")

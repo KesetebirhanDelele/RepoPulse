@@ -1,6 +1,7 @@
 """SQLAlchemy engine setup and DDL initialisation for RepoPulse."""
 
-from sqlalchemy import Column, Integer, MetaData, String, Table, Text, create_engine
+from sqlalchemy import Column, Integer, MetaData, String, Table, Text, create_engine, text
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import Engine
 
 metadata = MetaData()
@@ -14,6 +15,7 @@ Table(
     Column("name", String(255)),
     Column("dev_owner_name", String(255)),
     Column("team", String(255)),
+    Column("active", Integer, server_default="1", nullable=False),
 )
 
 Table(
@@ -54,3 +56,23 @@ def get_engine(db_url: str) -> Engine:
 def init_db(engine: Engine) -> None:
     """Create all required tables if they do not already exist."""
     metadata.create_all(engine)
+
+
+def migrate_db(engine: Engine) -> None:
+    """Apply additive schema migrations to existing databases.
+
+    Safe to call on every startup: checks for column existence before altering.
+    Never drops data or columns.
+    """
+    try:
+        inspector = sa_inspect(engine)
+        if not inspector.has_table("repos"):
+            return  # table not yet created; init_db will build it with all columns
+        existing = {c["name"] for c in inspector.get_columns("repos")}
+        if "active" not in existing:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("ALTER TABLE repos ADD active INTEGER NOT NULL DEFAULT 1")
+                )
+    except Exception:
+        pass  # migration errors must never abort startup

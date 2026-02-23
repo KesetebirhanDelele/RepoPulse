@@ -269,3 +269,133 @@ docs/runbook.md
 .github/workflows/ci.yml (or equivalent) for CI
 
 RepoPulse must not fail if these are missing; it should mark as risk flags and factor into RYG scoring.
+
+RepoPulse Handoff Prompt (paste into a new window) 02-23-2026
+
+I need you to continue work on my RepoPulse project with full context from the previous session. Here is the situation from the beginning (high level) through the current state:
+
+Project purpose
+
+RepoPulse is a CLI + DB + reporting + web dashboard tool to track multiple GitHub repos (projects), score their “health” (red/yellow/green), surface risk flags, and help leadership focus support on developers/teams.
+
+Environment / workflow rules
+
+We use an in-editor assistant workflow (Claude Code). Changes are made one scoped step at a time.
+
+Repo has CLAUDE.md rules: strict layering (directives/orchestration/execution/tests), tests for non-trivial logic, no secrets in repo, safe scripts, etc.
+
+DB is SQL Server via SQLAlchemy (sqlite allowed but I’m using SQL Server).
+
+.env is used locally (gitignored) to set DB_URL and GITHUB_TOKEN.
+
+What is built (working features)
+
+Packaging/CLI
+
+pip install -e . installs repopulse entrypoint.
+
+CLI supports commands like snapshots, report weekly, deepdive, dashboard, validate configs, db check (when the right CLI is being invoked).
+
+Storage (SQLAlchemy)
+
+Tables: repos, runs, snapshots (snapshots store snapshot_json).
+
+Added schema safety for SQL Server string lengths in sa.py.
+
+Added active column to repos (INTEGER NOT NULL DEFAULT 1).
+
+Added migrate_db() called on startup to ALTER TABLE add active if missing.
+
+Collectors
+
+Commits collector: computes commits_7d/commits_24h and fetches most recent commit when no commits in last 7 days (so last_commit_at isn’t null).
+
+GitHub Actions CI collector (optional via signals.yaml): fetches latest workflow run and normalizes status.
+
+Releases collector: now fetches latest tag and latest GitHub release (enabled via config); unit tested.
+
+Tree/file scan collector: computes hygiene fields:
+
+readme_present
+
+tests_present (real detection via tree scan patterns)
+
+docs_missing (docs/architecture.md, docs/data-model.md, docs/operations.md)
+
+gitignore_present
+
+env_not_tracked (GOOD when .env is not in repo; checked via GitHub contents)
+
+claude_md_present
+
+Important debugging history: claude_md_present initially never appeared because it was missing from Pydantic RepoSnapshot schema and not passed through scoring snapshot creation. Fixed by:
+
+adding field to RepoSnapshot schema
+
+ensuring scoring/engine passes it into RepoSnapshot
+
+ensuring it gets persisted into snapshot_json
+
+Scoring
+
+Produces status_ryg and status_explanation.
+
+Produces risk_flags including:
+
+high_commits_no_release
+
+refactor_heavy
+
+contracts_churn_no_version (but we later planned to make the “no_version” variant only when no tag/release exists).
+
+Reports
+
+weekly.csv generated from latest snapshots since a date.
+
+deepdive queue CSV generated from latest snapshots.
+
+Both now filter out inactive repos (JOIN repos r AND r.active=1).
+
+Dashboard (FastAPI server-rendered HTML)
+
+Portfolio / with filters (status/team), show=active|all, inactive styling, status message banner.
+
+Manage page /manage: multi-repo registration by URL; auto extracts owner/name; optional team; stores in DB; does not edit YAML; shows success banners.
+
+Manage page now includes edit and deactivate/reactivate:
+
+GET /manage/edit (edit team/dev_owner_name/url)
+
+POST /manage/edit
+
+POST /manage/toggle (active flip)
+
+Run snapshots from web: POST /run/snapshots runs in-process pipeline and redirects to portfolio with a message.
+
+Risk heatmap /risks and support page /support exist and are filtered to active repos by default.
+
+Scripts
+
+scripts/run_weekly.ps1 updated:
+
+-Reports generates weekly/deepdive CSVs
+
+-Dashboard starts dashboard
+
+-Since override start date
+
+-BindHost / -BindPort for dashboard (cannot use Host param, reserved).
+
+README/docs updated to include “python -m pytest” and PowerShell script usage.
+
+Testing
+
+pytest scaffolding exists and tests pass (33 tests).
+
+ReleasesCollector tests were updated to handle both cfg dict and signals_path (runtime uses signals_path kwarg).
+
+Release tagging
+
+Tags created and pushed: v0.3.0, v0.3.1, v1.0.0 (tag exists).
+
+A PowerShell script scripts/release.ps1 exists to create tags and GitHub releases via API. It failed to create GitHub releases due to missing/invalid GITHUB_TOKEN in PowerShell env (401 unauthorized). .env token loads in Python but not automatically in PowerShell.

@@ -53,6 +53,11 @@ repopulse deepdive queue --out exports/deepdive_queue.csv
 
 # Full run: custom week start, reports, dashboard on custom address
 .\scripts\run_weekly.ps1 -Since 2026-02-13 -Reports -Dashboard -BindHost 127.0.0.1 -BindPort 8000
+
+# Add version and title to release
+$env:GITHUB_TOKEN = "******************"
+>> .\scripts\release.ps1 -Version 1.0.1 -Title "RepoPulse v1.0.1" 
+
 ```
 
 Dashboard mode starts the web server and blocks until Ctrl+C.

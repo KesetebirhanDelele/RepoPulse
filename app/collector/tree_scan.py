@@ -10,6 +10,7 @@ _REQUIRED_DOCS = [
     "docs/architecture.md",
     "docs/data-model.md",
     "docs/operations.md",
+    "docs/project-plan.md",
 ]
 
 _README_PATTERNS = ["README.md", "README.rst", "README.txt", "README"]
