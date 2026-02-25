@@ -36,7 +36,7 @@ repopulse snapshots run
 repopulse report weekly --since 2026-02-17 --out exports/weekly.csv
 
 # Deep-dive queue (red/yellow repos and those with risk flags)
-repopulse deepdive queue --out exports/deepdive_queue.csv
+repopulse deepdive queue --out exports/deepdive_queue.csv #
 ```
 
 ### Weekly Runner Script (PowerShell)
