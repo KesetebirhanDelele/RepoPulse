@@ -128,7 +128,15 @@ class TreeScanCollector:
             env_not_tracked = True
 
         try:
-            claude_md_present = bool(self._exists(owner, name, "CLAUDE.md"))
+            if tree_paths is not None:
+                claude_md_present = any(
+                    p.lower() == "claude.md" for p in tree_paths
+                )
+            else:
+                claude_md_present = any(
+                    self._exists(owner, name, variant)
+                    for variant in ("CLAUDE.md", "claude.md", "Claude.md")
+                )
         except Exception:
             claude_md_present = False
 

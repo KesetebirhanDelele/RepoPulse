@@ -68,7 +68,7 @@ Start the dashboard (default: `http://127.0.0.1:8000`):
 
 ```bash
 repopulse dashboard run
-repopulse dashboard run --host 0.0.0.0 --port 9000
+repopulse dashboard run --port 8080
 ```
 
 | URL | Purpose |
