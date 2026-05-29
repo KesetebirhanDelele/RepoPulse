@@ -293,6 +293,192 @@ Claude should optimize for:
 
 ---
 
+## Progress Tracking & Repository State Governance
+
+### Mandatory Repository State File
+
+This repository must maintain a root-level file named:
+
+`PROGRESS.md`
+
+`PROGRESS.md` is the authoritative repository development ledger and operational memory layer.
+
+Its purpose is to:
+
+* track implementation phases
+* document architectural evolution
+* record validation and testing evidence
+* preserve cross-session continuity
+* prevent regression and duplicate work
+* expose incomplete or placeholder implementations
+* provide auditable repository state history
+* communicate current system maturity to humans and agents
+
+---
+
+## Creation Rule (Mandatory)
+
+If `PROGRESS.md` does not exist:
+
+Claude must create it before performing substantial implementation work.
+
+The initial version must include:
+
+* project overview
+* current repository phase
+* known architecture
+* implementation status summary
+* outstanding gaps
+* testing status
+* next recommended actions
+
+No major repository work should proceed without a repository state tracking file.
+
+---
+
+## Session Startup Rule
+
+At the start of any repository work session, Claude must:
+
+1. Read `PROGRESS.md`
+2. Determine:
+
+   * current project phase
+   * completed milestones
+   * incomplete work
+   * deferred items
+   * architectural constraints
+   * known risks
+3. Align all new work with the documented repository state
+
+Claude must treat `PROGRESS.md` as the primary continuity artifact between sessions.
+
+---
+
+## Mandatory Update Conditions
+
+Claude must update `PROGRESS.md` whenever any of the following occur:
+
+* new features are implemented
+* tests are added or modified
+* directives materially change
+* integrations are completed
+* bugs are resolved
+* architecture changes
+* schemas change
+* phases advance
+* major refactors occur
+* edge cases are resolved
+* production risks are identified
+* validation baselines change
+
+No meaningful repository change is considered complete until `PROGRESS.md` is updated.
+
+---
+
+## Required Entry Structure
+
+Each progress entry must contain:
+
+### Header
+
+* Phase or milestone identifier
+* Date/time
+* Repository status classification
+
+### What Changed
+
+* Files created
+* Files modified
+* Architectural changes
+* New integrations
+* Behavioral changes
+
+### Validation
+
+* Tests added or updated
+* Verification steps performed
+* Deterministic validation evidence
+* Integration validation status
+* Known unverified areas
+
+### Risks / Limitations
+
+* Deferred work
+* Technical debt
+* Incomplete integrations
+* Placeholder implementations
+* Known instability
+
+### Next Actions
+
+* Recommended next implementation steps
+* Remaining blockers
+* Required approvals if applicable
+
+---
+
+## Completion Integrity Rules
+
+Claude must never:
+
+* mark scaffolded code as complete
+* report assumed functionality without verification
+* omit known implementation gaps
+* collapse partially working systems into “done”
+* claim production readiness without validation evidence
+
+Repository status reporting must prioritize:
+
+* accuracy
+* auditability
+* determinism
+* reproducibility
+* engineering honesty
+
+---
+
+## Repository Maturity Classification
+
+Where applicable, entries should classify components as:
+
+* Planned
+* Scaffolded
+* Partially Implemented
+* Integrated
+* Tested
+* Verified
+* Production Ready
+
+This distinction is mandatory for AI-generated systems.
+
+---
+
+## Failure Recovery Rule
+
+When failures occur, `PROGRESS.md` must document:
+
+* root cause
+* affected components
+* corrective actions
+* tests added
+* prevention strategy
+* remaining risks
+
+Failures are considered repository learning events.
+
+---
+
+## Definition of Done Amendment
+
+A task is not complete unless:
+
+* implementation exists
+* validation exists
+* relevant tests pass
+* documentation is updated
+* and `PROGRESS.md` reflects the current repository state
+
 ## Definition of Done
 
 A change is not complete unless:
