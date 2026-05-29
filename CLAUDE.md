@@ -334,13 +334,23 @@ The initial version must include:
 
 No major repository work should proceed without a repository state tracking file.
 
+This is a **one-time bootstrapping action**.
+
+- Check whether `PROGRESS.md` exists **before** creating it.
+- If it already exists, do **not** overwrite, recreate, or reset it.
+- If it does not exist, create it once, then proceed with the session.
+- Creation must never happen more than once per repository lifetime.
+
 ---
 
 ## Session Startup Rule
 
 At the start of any repository work session, Claude must:
 
-1. Read `PROGRESS.md`
+1. Check whether `PROGRESS.md` exists.
+   - If it exists: read it.
+   - If it does not exist: create it once (per the Creation Rule), then read it.
+
 2. Determine:
 
    * current project phase
