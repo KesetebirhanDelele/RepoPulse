@@ -37,6 +37,16 @@ _LATEST_SQL = text("""
     ORDER BY s.owner, s.name
 """)
 
+_UNSNAPSHOTTED_ACTIVE_SQL = text("""
+    SELECT r.owner, r.name, r.dev_owner_name, r.team
+    FROM repos r
+    WHERE r.active = 1
+    AND NOT EXISTS (
+        SELECT 1 FROM snapshots s WHERE s.owner = r.owner AND s.name = r.name
+    )
+    ORDER BY r.owner, r.name
+""")
+
 _LATEST_ACTIVE_SQL = text("""
     SELECT s.owner, s.name, s.captured_at, s.snapshot_json
     FROM snapshots s
@@ -71,12 +81,13 @@ _LATEST_ONE_SQL = text("""
 # ---------------------------------------------------------------------------
 
 _RYG_COLOURS = {
-    "red":    ("#c0392b", "#fff"),
-    "yellow": ("#f39c12", "#000"),
-    "green":  ("#27ae60", "#fff"),
+    "red":     ("#c0392b", "#fff"),
+    "yellow":  ("#f39c12", "#000"),
+    "green":   ("#27ae60", "#fff"),
+    "pending": ("#7f8c8d", "#fff"),
 }
 
-_RYG_ORDER = {"red": 0, "yellow": 1, "green": 2}
+_RYG_ORDER = {"red": 0, "yellow": 1, "green": 2, "pending": 3}
 
 
 def _badge(status: str) -> str:
@@ -166,6 +177,34 @@ def _load_rows(status_filter: str, team_filter: str, show_filter: str = "active"
                 "captured_at":      str(db_row.captured_at),
                 "is_active":        is_active,
             })
+
+        # Include active repos that have never been snapshotted, but only when not
+        # filtering by a specific RYG status (they have no status to match against).
+        if not status_filter or status_filter == "all":
+            result2 = conn.execute(_UNSNAPSHOTTED_ACTIVE_SQL)
+            for db_row in result2:
+                team = db_row.team or ""
+                if team_filter and team != team_filter:
+                    continue
+                rows.append({
+                    "owner":              db_row.owner,
+                    "name":               db_row.name,
+                    "team":               team,
+                    "dev_owner":          db_row.dev_owner_name or "",
+                    "status_ryg":         "pending",
+                    "status_exp":         "No snapshot collected yet",
+                    "commits_7d":         "",
+                    "last_commit":        "",
+                    "days_since":         None,
+                    "ci_status":          "",
+                    "docs_missing_count": 0,
+                    "tests_present":      None,
+                    "risk_flags_raw":     None,
+                    "latest_tag":         "",
+                    "latest_release":     "",
+                    "captured_at":        "",
+                    "is_active":          True,
+                })
 
     rows.sort(key=lambda r: (_RYG_ORDER.get(r["status_ryg"], 9), r["owner"], r["name"]))
     return rows
@@ -269,16 +308,22 @@ def _render_html(rows: list[dict[str, Any]], status_filter: str, team_filter: st
     )
 
     # Counters (respecting current filters)
-    n_red    = sum(1 for r in rows if r["status_ryg"] == "red")
-    n_yellow = sum(1 for r in rows if r["status_ryg"] == "yellow")
-    n_green  = sum(1 for r in rows if r["status_ryg"] == "green")
-    n_total  = len(rows)
+    n_red     = sum(1 for r in rows if r["status_ryg"] == "red")
+    n_yellow  = sum(1 for r in rows if r["status_ryg"] == "yellow")
+    n_green   = sum(1 for r in rows if r["status_ryg"] == "green")
+    n_pending = sum(1 for r in rows if r["status_ryg"] == "pending")
+    n_total   = len(rows)
 
+    pending_counter = (
+        f'<span class="counter" style="background:#7f8c8d">Pending: {n_pending}</span>'
+        if n_pending else ""
+    )
     counters_html = (
         '<div class="counters">'
         f'<span class="counter red">Red: {n_red}</span>'
         f'<span class="counter yellow">Yellow: {n_yellow}</span>'
         f'<span class="counter green">Green: {n_green}</span>'
+        f'{pending_counter}'
         f'<span class="counter total">Total shown: {n_total}</span>'
         '</div>'
     )
