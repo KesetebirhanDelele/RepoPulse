@@ -454,7 +454,8 @@ def _load_audit_row(owner: str, name: str) -> dict[str, Any] | None:
         "docs_missing":      docs_missing,
         "gitignore_present":  snap.get("gitignore_present", False),
         "env_not_tracked":    snap.get("env_not_tracked", True),
-        "claude_md_present":  snap.get("claude_md_present", False),
+        "claude_md_present":   snap.get("claude_md_present", False),
+        "progress_md_present": snap.get("progress_md_present", False),
     }
 
 
@@ -477,7 +478,7 @@ def _render_audit_html(row: dict[str, Any]) -> str:
     audit_header = (
         "<tr>"
         "<th>README</th><th>Tests</th><th>Docs Missing</th>"
-        "<th>.gitignore</th><th>CLAUDE.md</th><th>Env Not Tracked</th>"
+        "<th>.gitignore</th><th>CLAUDE.md</th><th>PROGRESS.md</th><th>Env Not Tracked</th>"
         "</tr>"
     )
     audit_row = (
@@ -487,6 +488,7 @@ def _render_audit_html(row: dict[str, Any]) -> str:
         f"<td>{docs_cell}</td>"
         f"<td>{_bool_cell(row['gitignore_present'])}</td>"
         f"<td>{_bool_cell(row['claude_md_present'])}</td>"
+        f"<td>{_bool_cell(row['progress_md_present'])}</td>"
         f"<td>{_bool_cell(row['env_not_tracked'])}</td>"
         "</tr>"
     )

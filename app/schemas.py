@@ -70,6 +70,7 @@ class RepoSnapshot(BaseModel):
     gitignore_present: Optional[bool] = None
     env_not_tracked: Optional[bool] = None
     claude_md_present: Optional[bool] = None
+    progress_md_present: Optional[bool] = None
 
     # Derived
     status_ryg: RYG

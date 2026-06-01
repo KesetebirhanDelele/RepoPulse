@@ -140,6 +140,19 @@ class TreeScanCollector:
         except Exception:
             claude_md_present = False
 
+        try:
+            if tree_paths is not None:
+                progress_md_present = any(
+                    p.lower() == "progress.md" for p in tree_paths
+                )
+            else:
+                progress_md_present = any(
+                    self._exists(owner, name, variant)
+                    for variant in ("PROGRESS.md", "progress.md", "Progress.md")
+                )
+        except Exception:
+            progress_md_present = False
+
         signals.update(
             {
                 "required_files_missing": [],
@@ -150,6 +163,7 @@ class TreeScanCollector:
                 "gitignore_present": gitignore_present,
                 "env_not_tracked": env_not_tracked,
                 "claude_md_present": claude_md_present,
+                "progress_md_present": progress_md_present,
             }
         )
         return signals
