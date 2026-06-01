@@ -73,6 +73,7 @@ class ScoringEngine:
             gitignore_present=signals.get("gitignore_present"),
             env_not_tracked=signals.get("env_not_tracked"),
             claude_md_present=signals.get("claude_md_present"),
+            progress_md_present=signals.get("progress_md_present"),
             status_ryg=status,
             status_explanation=explanation,
             risk_flags=risk_flags,
