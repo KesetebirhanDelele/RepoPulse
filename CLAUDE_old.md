@@ -313,73 +313,6 @@ Its purpose is to:
 * expose incomplete or placeholder implementations
 * provide auditable repository state history
 * communicate current system maturity to humans and agents
-* measure implementation progress against the intended deliverable
-* make repository gaps visible across design, execution, validation, runtime, and operational readiness
-
----
-
-## Deliverable Alignment Rule
-
-The authoritative source for what the app is intended to deliver is the relevant requirements file under `spec/`, especially:
-
-`spec/...requirements.md`
-
-This file defines the deliverable, use case, target capabilities, expected outcomes, and success criteria for the system.
-
-`PROGRESS.md` is the authoritative implementation-state ledger.
-
-Claude must determine repository progress by comparing:
-
-1. the intended deliverable in `spec/...requirements.md`
-2. the current repository implementation state
-3. the validated status recorded in `PROGRESS.md`
-
-Claude must not treat progress as “code exists.”
-
-Claude must treat progress as **capability maturity across the production blueprint layers**.
-
----
-
-## Production Blueprint Progress Model
-
-For each major capability required by the deliverable, Claude must assess progress against the following production blueprint layers as applicable to the project’s scope, architecture, and maturity:
-
-1. Requirements — what the system must do
-2. Specs — structural definition of the capability
-3. Directives — behavioral and business-rule guidance
-4. Execution Plan — implementation path / build steps
-5. State Model — lifecycle or workflow states
-6. Test Scenarios — validation coverage
-7. System Loop — runtime operation
-8. Failure Playbook — failure handling and recovery behavior
-9. Environment Model — environment-specific runtime safety
-10. Data Lifecycle — creation, update, retention, correction, lineage
-11. Evolution Strategy — safe future change path
-
-Not every project will express every layer as a separate file, folder, or formal artifact.
-
-Claude must use this model as a progress and maturity evaluation framework, not as a rigid repository shape requirement.
-
-Claude should infer layer coverage from available repository evidence and may classify layers as:
-* not applicable
-* not yet needed
-* implicit in current implementation
-* not yet formalized
-
-Claude must not force unnecessary artifacts or structure onto a project merely to satisfy the layer model.
-
-Claude must use repository evidence to determine which of these layers are:
-
-* absent
-* planned
-* scaffolded
-* partially implemented
-* integrated
-* tested
-* verified
-* production ready
-
-Progress must be expressed as **layered maturity**, not just feature presence.
 
 ---
 
@@ -398,9 +331,15 @@ The initial version must include:
 * outstanding gaps
 * testing status
 * next recommended actions
-* deliverable alignment summary against `spec/...requirements.md`
 
 No major repository work should proceed without a repository state tracking file.
+
+This is a **one-time bootstrapping action**.
+
+- Check whether `PROGRESS.md` exists **before** creating it.
+- If it already exists, do **not** overwrite, recreate, or reset it.
+- If it does not exist, create it once, then proceed with the session.
+- Creation must never happen more than once per repository lifetime.
 
 ---
 
@@ -408,27 +347,21 @@ No major repository work should proceed without a repository state tracking file
 
 At the start of any repository work session, Claude must:
 
-1. Read `CLAUDE.md`
-2. Read `PROGRESS.md`
-3. Read the relevant deliverable/use-case file under `spec/`, especially `spec/...requirements.md`
-4. Inspect the relevant repository areas for the current target
-5. Determine:
+1. Check whether `PROGRESS.md` exists.
+   - If it exists: read it.
+   - If it does not exist: create it once (per the Creation Rule), then read it.
 
-   * what the system is intended to deliver
-   * which major capabilities are required
+2. Determine:
+
+   * current project phase
    * completed milestones
    * incomplete work
    * deferred items
    * architectural constraints
    * known risks
-   * which layers are missing or incomplete for each relevant capability
-   * the next highest-value implementation task
-6. Align all new work with both:
+3. Align all new work with the documented repository state
 
-   * the intended deliverable
-   * the documented repository state
-
-Claude must treat `PROGRESS.md` as the primary continuity artifact between sessions, while deriving implementation direction from the gap between the intended deliverable and the current repository maturity.
+Claude must treat `PROGRESS.md` as the primary continuity artifact between sessions.
 
 ---
 
@@ -448,65 +381,20 @@ Claude must update `PROGRESS.md` whenever any of the following occur:
 * edge cases are resolved
 * production risks are identified
 * validation baselines change
-* capability maturity materially changes
-* a major deliverable gap is closed, opened, clarified, or reclassified
 
 No meaningful repository change is considered complete until `PROGRESS.md` is updated.
 
 ---
 
-## Required Progress Evaluation Method
-
-When Claude updates `PROGRESS.md`, it must evaluate progress by capability.
-
-For each relevant capability, Claude should determine:
-
-* Deliverable alignment:
-  * Is this capability required by `spec/...requirements.md`?
-* Implementation maturity:
-  * What evidence exists in the repository?
-* Validation maturity:
-  * What tests or verification prove it works?
-* Operational maturity:
-  * Does it run safely in realistic conditions?
-* Sustainability maturity:
-  * Can it evolve safely without breaking the system?
-
-Claude must not mark a capability as complete merely because:
-
-* UI exists
-* endpoint exists
-* schema exists
-* scaffold code exists
-* partial integration exists
-
-A capability is only mature to the extent that repository evidence supports it across the relevant production blueprint layers.
-
----
-
 ## Required Entry Structure
 
-`PROGRESS.md` must maintain both:
-
-1. a **current-state capability view**
-2. a **chronological implementation history**
-
-Each meaningful progress entry must contain:
+Each progress entry must contain:
 
 ### Header
 
 * Phase or milestone identifier
 * Date/time
 * Repository status classification
-
-### Capability / Deliverable Alignment
-
-* Capability name
-* Deliverable relevance
-* Whether it is required, deferred, or optional
-* Current maturity classification
-* Relevant production blueprint layers covered
-* Relevant production blueprint layers still missing or incomplete
 
 ### What Changed
 
@@ -540,52 +428,6 @@ Each meaningful progress entry must contain:
 
 ---
 
-## Preferred Capability Reporting Format
-
-Where appropriate, `PROGRESS.md` entries should describe capability maturity using a format like:
-
-* Capability
-* Deliverable status
-* Requirements
-* Specs
-* Directives
-* Execution Plan
-* State Model
-* Test Scenarios
-* System Loop
-* Failure Playbook
-* Environment Model
-* Data Lifecycle
-* Evolution Strategy
-* Overall maturity
-* Remaining gaps
-* Next recommended step
-
-Preferred example:
-
-* Capability: Student outreach workflow
-* Deliverable status: Required
-* Requirements: Defined
-* Specs: Partial
-* Directives: Present
-* Execution Plan: Implemented
-* State Model: Partial
-* Test Scenarios: Partial
-* System Loop: Integrated
-* Failure Playbook: Partial
-* Environment Model: Shadow-safe only
-* Data Lifecycle: Partial
-* Evolution Strategy: Not yet formalized
-* Overall maturity: Partially Implemented / Integrated
-
-This format is preferred over vague statements such as:
-
-* “feature done”
-* “workflow completed”
-* “UI added”
-
----
-
 ## Completion Integrity Rules
 
 Claude must never:
@@ -595,9 +437,6 @@ Claude must never:
 * omit known implementation gaps
 * collapse partially working systems into “done”
 * claim production readiness without validation evidence
-* infer deliverable completion from code presence alone
-* treat directives alone as sufficient implementation
-* treat tests alone as sufficient production readiness
 
 Repository status reporting must prioritize:
 
@@ -611,7 +450,7 @@ Repository status reporting must prioritize:
 
 ## Repository Maturity Classification
 
-Where applicable, entries should classify capabilities or components as:
+Where applicable, entries should classify components as:
 
 * Planned
 * Scaffolded
@@ -622,43 +461,6 @@ Where applicable, entries should classify capabilities or components as:
 * Production Ready
 
 This distinction is mandatory for AI-generated systems.
-
-Maturity must be based on repository evidence across relevant production blueprint layers, not on isolated code completion.
-
----
-
-## Anti-Drift Rule
-
-Claude must not:
-
-* jump to low-priority enhancements before core deliverable gaps are closed
-* invent roadmap items not grounded in the deliverable
-* redesign architecture unless needed to safely satisfy the deliverable
-* treat partial implementation as equivalent to deliverable completion
-* optimize or polish a capability whose core maturity gaps are still unresolved
-
-Claude must prefer closing the highest-value maturity gap in a required capability over adding unrelated features.
-
----
-
-## Repository Gap Analysis Rule
-
-If `spec/...requirements.md`, the codebase, and `PROGRESS.md` do not agree, Claude must not guess.
-
-Claude must:
-
-1. identify the discrepancy
-2. inspect the relevant repository evidence
-3. document the discrepancy in `PROGRESS.md`
-4. choose the safest next step based on verified evidence
-
-Repository progress must always be based on what is:
-
-* required
-* implemented
-* validated
-* operationally safe
-* explicitly evidenced
 
 ---
 
@@ -672,8 +474,6 @@ When failures occur, `PROGRESS.md` must document:
 * tests added
 * prevention strategy
 * remaining risks
-* impact on capability maturity
-* whether the failure exposed a missing production blueprint layer
 
 Failures are considered repository learning events.
 
@@ -687,21 +487,17 @@ A task is not complete unless:
 * validation exists
 * relevant tests pass
 * documentation is updated
-* `PROGRESS.md` reflects the current repository state
-* the affected capability maturity is updated honestly based on repository evidence
+* and `PROGRESS.md` reflects the current repository state
 
 ## Definition of Done
 
 A change is not complete unless:
-
-* relevant unit tests exist and pass
-* behavior-changing logic updates directives
-* end-to-end impact is verified when applicable
-* no secrets are introduced
-* validation scripts pass
-* changes are understandable by a junior developer
-
-A deliverable-aligned capability is not complete merely because code was added. It is complete only to the maturity level supported by evidence across the relevant production blueprint layers.
+- relevant unit tests exist and pass
+- behavior-changing logic updates directives
+- end-to-end impact is verified when applicable
+- no secrets are introduced
+- validation scripts pass
+- changes are understandable by a junior developer
 
 ---
 
@@ -709,13 +505,10 @@ A deliverable-aligned capability is not complete merely because code was added. 
 
 Claude is the **planner, validator, and system hardener** — not the worker.
 
-- Requirements define the deliverable
-- Specs define the structure
-- Directives define the behavior
+- Directives define intent
 - Scripts execute deterministically
 - Tests prove correctness
 - Workers run the system
-- `PROGRESS.md` records maturity against the intended deliverable
 - Claude strengthens the system over time
 
 **Be deliberate.  
