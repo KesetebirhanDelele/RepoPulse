@@ -1,7 +1,7 @@
 # PROGRESS.md — RepoPulse Repository State Ledger
 
 **Created:** 2026-05-29  
-**Last Updated:** 2026-06-03  
+**Last Updated:** 2026-08-25  
 **Repository Status:** Partially Implemented  
 **Current Branch:** `feature/manage-page-ui`
 
@@ -97,6 +97,8 @@ This section documents gaps between what CLAUDE.md requires and the current repo
 - No unit tests for dashboard routes
 - `_run_snapshots_pipeline()` mixes orchestration into the web layer (`server.py`)
 - No `spec/` folder or formal requirements document on disk
+- `_run_snapshots_pipeline()` (`POST /run/snapshots`) resolves `configs/default.yaml`, `configs/signals.yaml`, and `configs/repos.yaml` relative to the server process's working directory, with no override — unlike the CLI, which accepts `--config`/`--signals`/`--repos`. Breaks with a `FileNotFoundError` if the dashboard is ever run from a working directory without its own `configs/` folder. See Entry 005.
+- `GitHubClient` does not follow HTTP redirects (`httpx` default `follow_redirects=False`). A tracked repo that GitHub serves a `301` for (e.g. renamed/transferred) never collects a snapshot and stalls at "PENDING" indefinitely, with no surfaced explanation. See Entry 005.
 
 ---
 
@@ -251,6 +253,46 @@ This section documents gaps between what CLAUDE.md requires and the current repo
 
 ---
 
+### Entry 005 — 2026-08-25
+
+**Phase:** Phase 1  
+**Status:** Production risks identified (no application code changed)
+
+#### Context
+
+A walkthrough-video production session exercised the dashboard end-to-end (portfolio, audit, ownership/support, manage — including a live "Generate snapshots" run) against an isolated demo dataset, as a non-code activity separate from this repository's development. Two real, previously-undocumented bugs in the application surfaced from that live exercise and are recorded here as a lesson, per the mandatory-update trigger for identified production risks. No source file in this repository was modified as part of this entry.
+
+#### What Was Found
+
+1. **`_run_snapshots_pipeline()` / `POST /run/snapshots` (`app/dashboard/server.py`, lines ~890-902) resolves config paths relative to the server process's working directory, not the repository root.** It hardcodes `Path("configs/default.yaml")`, `Path("configs/signals.yaml")`, `Path("configs/repos.yaml")` with no override, unlike the CLI's `snapshots_run`, which accepts explicit `--config`/`--signals`/`--repos` options.
+   - **Reproduced live:** running the dashboard from a working directory with no local `configs/` folder makes the "Generate snapshots" button fail with `FileNotFoundError: [Errno 2] No such file or directory: 'configs\default.yaml'`.
+   - **Workaround used (isolated demo environment only — not applied to this repository):** copied `configs/` into the alternate working directory so the relative paths resolved. The application code is unchanged.
+   - **Root cause class:** missing Environment Model coverage — the CWD-relative pattern already flagged as a layering concern for this same function (see "Layer boundary note" above) is also environment-fragile, independent of the layering issue.
+
+2. **`GitHubClient` does not follow HTTP redirects** (`app/github/github_client.py`) — confirmed via `httpx`'s default `follow_redirects=False`.
+   - **Reproduced live** against `tiangolo/fastapi` and `facebook/react`, both currently served as `301 Moved Permanently` by the GitHub API as of 2026-08-25 (repository rename/transfer or similar).
+   - Collection for such a repo fails outright rather than following the redirect. The dashboard degrades gracefully — the repo shows `PENDING — No snapshot collected yet` instead of crashing — but it can never actually be scored until the redirect is followed or the config entry is manually re-pointed, and there is no user-facing explanation of why.
+
+#### Validation
+
+- Both findings reproduced against the real running dashboard and live GitHub API calls, not inferred from source review alone — Observed-tier evidence.
+- No regression test exists for either failure mode; none was added (fixing/testing was out of scope for the activity that surfaced them).
+
+#### Risks / Limitations
+
+- Any deployment, demo, or onboarding environment that starts the dashboard from a working directory without its own `configs/` folder will have a silently-broken "Generate snapshots" button.
+- Any tracked repo that is renamed or transferred on GitHub will permanently stall at "PENDING" with no surfaced explanation, until `GitHubClient` follows redirects or the entry is manually corrected.
+- Neither issue is covered by an existing test, so either could regress or recur unnoticed.
+
+#### Next Actions
+
+- [ ] Fix `_run_snapshots_pipeline()` to resolve config paths relative to the repository root (e.g., via the existing `_project_root()` helper already present in `app/storage/repo_store.py`) instead of CWD, or expose the same explicit path overrides the CLI already supports
+- [ ] Add `follow_redirects=True` (or explicit redirect handling, ideally with a logged/surfaced suggestion to re-point the config entry) to `GitHubClient`
+- [ ] Add a regression test/fixture reproducing both failure modes before fixing, so the fix is verifiable
+- [ ] If the CWD-relative config pattern is kept intentionally, document the "must run from repo root" requirement explicitly (e.g., in a future `/directives/` SOP)
+
+---
+
 ## Testing Status
 
 | Test file | Coverage | Status |
@@ -287,3 +329,7 @@ This section documents gaps between what CLAUDE.md requires and the current repo
 **Priority 4 — Test completeness**
 9. Add unit tests for `CommitsCollector`, `ActionsCollector`, `ReadmeCollector`
 10. Add integration test scaffold (test DB, mock GitHub API responses)
+
+**Priority 5 — Production risks found 2026-08-25 (see Entry 005)**
+11. Fix `_run_snapshots_pipeline()` config-path resolution to use the repository root instead of CWD, or accept explicit path overrides like the CLI does
+12. Add redirect following (or explicit handling) to `GitHubClient` for renamed/transferred repos
